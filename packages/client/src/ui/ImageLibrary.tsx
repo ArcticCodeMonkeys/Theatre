@@ -83,7 +83,7 @@ const styles: Record<string, React.CSSProperties> = {
     minWidth: 200,
     height: '100vh',
     background: '#12122a',
-    borderRight: '1px solid #2a2a4a',
+    borderLeft: '1px solid #2a2a4a',
     display: 'flex',
     flexDirection: 'column',
     userSelect: 'none',
