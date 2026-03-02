@@ -96,6 +96,17 @@ async function _init(): Promise<Database> {
   try { _db.run(`ALTER TABLE chat_messages ADD COLUMN title TEXT DEFAULT NULL`); } catch { /* already exists */ }
 
   _db.run(`
+    CREATE TABLE IF NOT EXISTS users (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      google_id  TEXT NOT NULL UNIQUE,
+      email      TEXT NOT NULL,
+      username   TEXT DEFAULT NULL,
+      avatar_url TEXT DEFAULT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `);
+
+  _db.run(`
     CREATE TABLE IF NOT EXISTS chat_messages (
       id         INTEGER PRIMARY KEY AUTOINCREMENT,
       type       TEXT NOT NULL DEFAULT 'text',

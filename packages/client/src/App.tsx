@@ -8,6 +8,7 @@ import { TargetingHUD } from './ui/TargetingHUD';
 import { ChatHandle } from './ui/Chat';
 import { ImageRecord } from './types/images';
 import { CharacterSheet, AttackEntry, ActiveCondition } from './types/sheets';
+import { AppUser } from './types/user';
 import { TargetingMode } from './types/targeting';
 import { getAoeTiles, isAreaAttack, FT_PER_TILE } from './renderer/targetingGeom';
 import { resolveVariables, rollExpression, DiceVars } from './lib/dice';
@@ -32,7 +33,7 @@ interface WindowEntry extends SheetWindowState {
 
 let zCounter = 100;
 
-export function App() {
+export function App({ user }: { user: AppUser }) {
   const stateRef = useRef<CanvasState>(INITIAL_STATE);
   const chatRef = useRef<ChatHandle>(null);
   const [, setVersion] = useState(0);
