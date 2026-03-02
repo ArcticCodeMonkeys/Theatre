@@ -63,6 +63,8 @@ async function _init(): Promise<Database> {
       pre_score          INTEGER NOT NULL DEFAULT 0,
       pre_die            INTEGER NOT NULL DEFAULT 6,
       skill_bonuses      TEXT NOT NULL DEFAULT '{}',
+      skill_levels       TEXT NOT NULL DEFAULT '{}',
+      save_levels        TEXT NOT NULL DEFAULT '{}',
       hp_current         INTEGER NOT NULL DEFAULT 0,
       hp_max             INTEGER NOT NULL DEFAULT 0,
       mental_current     INTEGER NOT NULL DEFAULT 0,
@@ -85,6 +87,8 @@ async function _init(): Promise<Database> {
 
   // Migrations — add columns that may not exist in older DBs
   try { _db.run(`ALTER TABLE sheets ADD COLUMN character_class TEXT DEFAULT ''`); } catch { /* already exists */ }
+  try { _db.run(`ALTER TABLE sheets ADD COLUMN skill_levels TEXT DEFAULT '{}'`); } catch { /* already exists */ }
+  try { _db.run(`ALTER TABLE sheets ADD COLUMN save_levels TEXT DEFAULT '{}'`); } catch { /* already exists */ }
 
   persist();
   return _db;

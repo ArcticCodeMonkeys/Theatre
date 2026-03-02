@@ -2,8 +2,9 @@
 import {
   CharacterSheet as Sheet,
   DieFace, DIE_OPTIONS,
-  SkillBonuses, Equipment,
-  DEFAULT_SKILL_BONUSES, DEFAULT_EQUIPMENT,
+  SkillBonuses, SkillLevels, SaveLevels, Equipment,
+  ProficiencyTier, PROFICIENCY_TIERS,
+  DEFAULT_SKILL_BONUSES, DEFAULT_SKILL_LEVELS, DEFAULT_SAVE_LEVELS, DEFAULT_EQUIPMENT,
 } from '../types/sheets';
 
 const API = 'http://localhost:3001';
@@ -47,6 +48,23 @@ function DieSelect({ value, onChange }: DieSelectProps) {
   return (
     <select value={value} onChange={e => onChange(Number(e.target.value) as DieFace)} style={dieSelectStyle}>
       {DIE_OPTIONS.map(d => <option key={d} value={d}>{d === 1 ? 'd1' : `d${d}`}</option>)}
+    </select>
+  );
+}
+
+const TIER_SHORT = ['Untr.', 'App.', 'Skil.', 'Exp.', 'Mast.'];
+interface TierSelectProps { value: ProficiencyTier; onChange: (v: ProficiencyTier) => void; color?: string; }
+function TierSelect({ value, onChange, color }: TierSelectProps) {
+  return (
+    <select
+      value={value}
+      onChange={e => onChange(Number(e.target.value) as ProficiencyTier)}
+      title={PROFICIENCY_TIERS[value]}
+      style={{ ...tierSelectStyle, ...(color ? { borderColor: color + '70' } : {}) }}
+    >
+      {PROFICIENCY_TIERS.map((label, i) => (
+        <option key={i} value={i}>{TIER_SHORT[i]}</option>
+      ))}
     </select>
   );
 }
@@ -111,6 +129,28 @@ export function CharacterSheet({ sheet, onUpdate }: Props) {
     });
   }, [persist]);
 
+  const setSkillLevel = useCallback((skill: keyof SkillLevels, value: ProficiencyTier) => {
+    setLocal(prev => {
+      const prevPb = 1 + Math.ceil(prev.level / 3);
+      const curLevels: SkillLevels = (() => { try { return { ...DEFAULT_SKILL_LEVELS, ...JSON.parse(prev.skill_levels) }; } catch { return { ...DEFAULT_SKILL_LEVELS }; } })();
+      const curBonuses: SkillBonuses = (() => { try { return { ...DEFAULT_SKILL_BONUSES, ...JSON.parse(prev.skill_bonuses) }; } catch { return { ...DEFAULT_SKILL_BONUSES }; } })();
+      const next = {
+        ...prev,
+        skill_levels: JSON.stringify({ ...curLevels, [skill]: value }),
+        skill_bonuses: JSON.stringify({ ...curBonuses, [skill]: value * prevPb }),
+      };
+      persist(next); return next;
+    });
+  }, [persist]);
+
+  const setSaveLevel = useCallback((stat: keyof SaveLevels, value: ProficiencyTier) => {
+    setLocal(prev => {
+      const cur: SaveLevels = (() => { try { return { ...DEFAULT_SAVE_LEVELS, ...JSON.parse(prev.save_levels) }; } catch { return { ...DEFAULT_SAVE_LEVELS }; } })();
+      const next = { ...prev, save_levels: JSON.stringify({ ...cur, [stat]: value }) };
+      persist(next); return next;
+    });
+  }, [persist]);
+
   const setEquip = useCallback((slot: keyof Equipment, value: string) => {
     setLocal(prev => {
       const cur: Equipment = (() => { try { return { ...DEFAULT_EQUIPMENT, ...JSON.parse(prev.equipment) }; } catch { return { ...DEFAULT_EQUIPMENT }; } })();
@@ -128,8 +168,11 @@ export function CharacterSheet({ sheet, onUpdate }: Props) {
   }, [persist]);
 
   const skills: SkillBonuses = (() => { try { return { ...DEFAULT_SKILL_BONUSES, ...JSON.parse(local.skill_bonuses) }; } catch { return { ...DEFAULT_SKILL_BONUSES }; } })();
+  const skillLevels: SkillLevels = (() => { try { return { ...DEFAULT_SKILL_LEVELS, ...JSON.parse(local.skill_levels) }; } catch { return { ...DEFAULT_SKILL_LEVELS }; } })();
+  const saveLevels: SaveLevels = (() => { try { return { ...DEFAULT_SAVE_LEVELS, ...JSON.parse(local.save_levels) }; } catch { return { ...DEFAULT_SAVE_LEVELS }; } })();
   const equipment: Equipment  = (() => { try { return { ...DEFAULT_EQUIPMENT,       ...JSON.parse(local.equipment)       }; } catch { return { ...DEFAULT_EQUIPMENT };       } })();
   const activeConditions: string[] = (() => { try { return JSON.parse(local.conditions) as string[]; } catch { return []; } })();
+  const pb = 1 + Math.ceil(local.level / 3);
 
   return (
     <div style={sheetStyle}>
@@ -148,6 +191,12 @@ export function CharacterSheet({ sheet, onUpdate }: Props) {
           <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <span style={headerFieldLabelStyle}>Level</span>
             <NumInput value={local.level} onChange={v => set('level', Math.max(1, v))} style={{ width: 52, textAlign: 'center', fontSize: 16, fontWeight: 700 }} />
+          </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={headerFieldLabelStyle}>PB</span>
+            <div style={{ width: 52, textAlign: 'center', fontSize: 16, fontWeight: 700, color: '#7b8cde', background: '#1a1a2e', border: '1px solid #2a2a4a', borderRadius: 4, padding: '4px 4px' }}>
+              +{pb}
+            </div>
           </label>
         </div>
       </div>
@@ -179,10 +228,16 @@ export function CharacterSheet({ sheet, onUpdate }: Props) {
                   </div>
                 </div>
                 <div style={{ padding: '0 8px 8px', borderTop: '1px solid #2a2a4a' }}>
+                  {/* Save row */}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 0 4px', borderBottom: '1px solid #2a2a4a1a', marginBottom: 2 }}>
+                    <span style={{ color: color, fontSize: 12, fontWeight: 700, flex: 1 }}>{SAVE_LABELS[stat]}</span>
+                    <TierSelect value={saveLevels[stat] as ProficiencyTier} onChange={v => setSaveLevel(stat, v)} color={color} />
+                  </div>
                   {STAT_SKILLS[stat].map(skill => (
                     <div key={skill} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '3px 0' }}>
                       <span style={{ color: '#aaa', fontSize: 12, flex: 1 }}>{skill}</span>
-                      <NumInput value={skills[skill] as number} onChange={v => setSkill(skill, v)} min={-5} style={{ width: 40, textAlign: 'center', fontSize: 13 }} />
+                      <TierSelect value={skillLevels[skill] as ProficiencyTier} onChange={v => setSkillLevel(skill, v)} />
+                      <NumInput value={skills[skill] as number} onChange={v => setSkill(skill, v)} min={-5} style={{ width: 40, textAlign: 'center', fontSize: 13, marginLeft: 4 }} />
                     </div>
                   ))}
                 </div>
@@ -230,18 +285,6 @@ export function CharacterSheet({ sheet, onUpdate }: Props) {
               <NumInput value={local.mana_max} onChange={v => set('mana_max', v)} style={{ width: 46, textAlign: 'center', fontSize: 15 }} />
             </div>
           </div>
-        </div>
-
-        {/* Saves */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 8, marginBottom: 14 }}>
-          {(['MIG', 'DEX', 'WIL', 'PRE'] as const).map(stat => (
-            <div key={stat} style={{ textAlign: 'center', padding: '7px 4px', background: '#0f0f1e', borderRadius: 5, border: `1px solid ${STAT_COLORS[stat]}40` }}>
-              <div style={{ color: STAT_COLORS[stat], fontWeight: 700, fontSize: 13 }}>{SAVE_LABELS[stat]}</div>
-              <div style={{ color: '#666', fontSize: 12, marginTop: 2 }}>
-                {`Roll ${stat} die (d${local[`${stat.toLowerCase()}_die` as keyof Sheet]})`}
-              </div>
-            </div>
-          ))}
         </div>
 
         {/* Conditions */}
@@ -292,6 +335,7 @@ const healthCardStyle: React.CSSProperties = { background: '#0f0f1e', borderRadi
 export const miniLabelStyle: React.CSSProperties = { color: '#666', fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 2 };
 const numInputStyle: React.CSSProperties = { background: '#1a1a2e', border: '1px solid #2a2a4a', borderRadius: 4, color: '#cdd6f4', padding: '3px 4px', width: 52, fontSize: 14, boxSizing: 'border-box' };
 const dieSelectStyle: React.CSSProperties = { background: '#1a1a2e', border: '1px solid #2a2a4a', borderRadius: 4, color: '#cdd6f4', padding: '3px 4px', fontSize: 13, cursor: 'pointer', width: 56, boxSizing: 'border-box' };
+const tierSelectStyle: React.CSSProperties = { background: '#1a1a2e', border: '1px solid #2a2a4a', borderRadius: 4, color: '#cdd6f4', padding: '2px 3px', fontSize: 11, cursor: 'pointer', width: 62, boxSizing: 'border-box' };
 const textInputStyle: React.CSSProperties = { background: '#1a1a2e', border: '1px solid #2a2a4a', borderRadius: 4, color: '#cdd6f4', padding: '4px 7px', fontSize: 13, flex: 1, minWidth: 0, outline: 'none', boxSizing: 'border-box' };
 const textareaStyle: React.CSSProperties = { width: '100%', background: '#0f0f1e', border: '1px solid #2a2a4a', borderRadius: 5, color: '#cdd6f4', padding: '10px', fontSize: 13, resize: 'none', outline: 'none', fontFamily: 'sans-serif', lineHeight: 1.6, boxSizing: 'border-box', marginBottom: 4 };
 const conditionPillStyle: React.CSSProperties = { background: '#1e1e3a', border: '1px solid #f38ba8', borderRadius: 12, color: '#f38ba8', padding: '3px 10px', fontSize: 12, display: 'flex', alignItems: 'center' };

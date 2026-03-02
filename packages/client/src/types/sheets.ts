@@ -1,6 +1,9 @@
 export type DieFace = 1 | 4 | 6 | 8 | 10 | 12;
 export const DIE_OPTIONS: DieFace[] = [1, 4, 6, 8, 10, 12];
 
+export type ProficiencyTier = 0 | 1 | 2 | 3 | 4;
+export const PROFICIENCY_TIERS = ['Untrained', 'Apprentice', 'Skilled', 'Expert', 'Master'] as const;
+
 export interface SkillBonuses {
   Climb: number;
   Push: number;
@@ -14,6 +17,28 @@ export interface SkillBonuses {
   Influence: number;
   Arcana: number;
   Nature: number;
+}
+
+export interface SkillLevels {
+  Climb: ProficiencyTier;
+  Push: ProficiencyTier;
+  Carry: ProficiencyTier;
+  Stealth: ProficiencyTier;
+  'Sleight of Hand': ProficiencyTier;
+  Acrobatics: ProficiencyTier;
+  Spot: ProficiencyTier;
+  Medicine: ProficiencyTier;
+  Recall: ProficiencyTier;
+  Influence: ProficiencyTier;
+  Arcana: ProficiencyTier;
+  Nature: ProficiencyTier;
+}
+
+export interface SaveLevels {
+  MIG: ProficiencyTier;
+  DEX: ProficiencyTier;
+  WIL: ProficiencyTier;
+  PRE: ProficiencyTier;
 }
 
 export interface Equipment {
@@ -45,6 +70,8 @@ export interface CharacterSheet {
   pre_score: number;
   pre_die: DieFace;
   skill_bonuses: string; // JSON SkillBonuses
+  skill_levels: string;  // JSON SkillLevels
+  save_levels: string;   // JSON SaveLevels
   hp_current: number;
   hp_max: number;
   mental_current: number;
@@ -71,6 +98,17 @@ export const DEFAULT_SKILL_BONUSES: SkillBonuses = {
   Influence: 0, Arcana: 0, Nature: 0,
 };
 
+export const DEFAULT_SKILL_LEVELS: SkillLevels = {
+  Climb: 0, Push: 0, Carry: 0,
+  Stealth: 0, 'Sleight of Hand': 0, Acrobatics: 0,
+  Spot: 0, Medicine: 0, Recall: 0,
+  Influence: 0, Arcana: 0, Nature: 0,
+};
+
+export const DEFAULT_SAVE_LEVELS: SaveLevels = {
+  MIG: 0, DEX: 0, WIL: 0, PRE: 0,
+};
+
 export const DEFAULT_EQUIPMENT: Equipment = {
   mainHand: '', offHand: '',
   helmet: '', necklace: '', armor: '', cape: '',
@@ -87,6 +125,8 @@ export function emptySheet(): Omit<CharacterSheet, 'id' | 'created_at'> {
     wil_score: 0, wil_die: 6,
     pre_score: 0, pre_die: 6,
     skill_bonuses: JSON.stringify(DEFAULT_SKILL_BONUSES),
+    skill_levels: JSON.stringify(DEFAULT_SKILL_LEVELS),
+    save_levels: JSON.stringify(DEFAULT_SAVE_LEVELS),
     hp_current: 0, hp_max: 10,
     mental_current: 0, mental_max: 10,
     grave_current: 0, grave_max: 10,
