@@ -118,6 +118,7 @@ export interface CharacterSheet {
   attacks: string;    // JSON array
   notes: string;
   token_image: string | null; // JSON ImageRecord | null
+  owner_user_id: number | null;
   created_at: string;
 }
 
@@ -169,5 +170,6 @@ export function emptySheet(): Omit<CharacterSheet, 'id' | 'created_at'> {
     attacks: '[]',
     notes: '',
     token_image: null,
+  owner_user_id: null,
   };
 }

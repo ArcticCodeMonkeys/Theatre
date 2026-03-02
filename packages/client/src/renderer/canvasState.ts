@@ -7,15 +7,48 @@ export interface PlacedImage {
   layer: LayerName;
   img: ImageRecord;
   htmlImg: HTMLImageElement;
-  // Position and size in grid tiles
   col: number;
   row: number;
   wTiles: number;
   hTiles: number;
-  rotation: number; // degrees
-  /** If this token was placed from a character sheet, its sheet ID. */
+  rotation: number;
   sheetId?: number;
 }
+
+/** Network/DB-safe version — no HTMLImageElement. */
+export type SerializedPlacedImage = Omit<PlacedImage, 'htmlImg'>;
+
+const API = 'http://localhost:3001';
+
+/** Hydrate a serialized token with a loaded HTMLImageElement. */
+export function hydratePlacedImage(s: SerializedPlacedImage): Promise<PlacedImage> {
+  return new Promise(resolve => {
+    const htmlImg = new Image();
+    htmlImg.onload = () => resolve({ ...s, htmlImg });
+    htmlImg.onerror = () => resolve({ ...s, htmlImg }); // resolve even on error
+    htmlImg.src = `${API}${s.img.url}`;
+    if (htmlImg.complete) resolve({ ...s, htmlImg });
+  });
+}
+
+/** Hydrate a full serialized canvas state. */
+export async function hydrateState(raw: { mapLayer: SerializedPlacedImage[]; tokenLayer: SerializedPlacedImage[] }): Promise<Omit<CanvasState, 'selectedId' | 'activeLayer'>> {
+  const [mapLayer, tokenLayer] = await Promise.all([
+    Promise.all(raw.mapLayer.map(hydratePlacedImage)),
+    Promise.all(raw.tokenLayer.map(hydratePlacedImage)),
+  ]);
+  return { mapLayer, tokenLayer };
+}
+
+/** Strip htmlImg so the state can be sent over the network. */
+export function serializeState(state: CanvasState): { mapLayer: SerializedPlacedImage[]; tokenLayer: SerializedPlacedImage[] } {
+  const strip = ({ htmlImg: _h, ...rest }: PlacedImage): SerializedPlacedImage => rest;
+  return {
+    mapLayer: state.mapLayer.map(strip),
+    tokenLayer: state.tokenLayer.map(strip),
+  };
+}
+
 
 export interface CanvasState {
   mapLayer: PlacedImage[];

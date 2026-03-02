@@ -1,8 +1,10 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { CharacterSheet } from '../types/sheets';
 import { ImageRecord } from '../types/images';
 
 const API = 'http://localhost:3001';
+
+interface UserOption { id: number; username: string; avatar_url: string | null; }
 
 interface Props {
   sheet: CharacterSheet;
@@ -14,6 +16,15 @@ interface Props {
 
 export function SheetSettings({ sheet, draggingImage, onUpdate, onClose }: Props) {
   const [dragOver, setDragOver] = useState(false);
+  const [users, setUsers] = useState<UserOption[]>([]);
+  const _dialogRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    fetch(`${API}/api/users`, { credentials: 'include' })
+      .then(r => r.ok ? r.json() : [])
+      .then(setUsers)
+      .catch(() => {});
+  }, []);
 
   const tokenImage: ImageRecord | null = (() => {
     try { return sheet.token_image ? JSON.parse(sheet.token_image) : null; } catch { return null; }
@@ -38,9 +49,14 @@ export function SheetSettings({ sheet, draggingImage, onUpdate, onClose }: Props
 
   const handleClear = () => patch({ token_image: null });
 
+  const handleOwnerChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const val = e.target.value;
+    patch({ owner_user_id: val === '' ? null : Number(val) });
+  };
+
   return (
-    <div style={overlayStyle}>
-      <div style={dialogStyle} onClick={e => e.stopPropagation()}>
+    <div style={wrapperStyle} onMouseDown={e => e.stopPropagation()}>
+      <div ref={_dialogRef} style={dialogStyle}>
         {/* Title bar */}
         <div style={titleBarStyle}>
           <span style={{ fontWeight: 700, fontSize: 14, color: '#cdd6f4' }}>
@@ -49,8 +65,9 @@ export function SheetSettings({ sheet, draggingImage, onUpdate, onClose }: Props
           <button style={closeBtnStyle} onClick={onClose}>✕</button>
         </div>
 
-        <div style={{ padding: '14px 16px' }}>
+        <div style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 18 }}>
           {/* Token image */}
+          <div>
           <div style={sectionHeaderStyle}>Token Image</div>
           <p style={{ color: '#666', fontSize: 11, marginBottom: 10, lineHeight: 1.5 }}>
             Switch to the 🖼 Images tab and drag an image onto the zone below.
@@ -86,6 +103,25 @@ export function SheetSettings({ sheet, draggingImage, onUpdate, onClose }: Props
           {tokenImage && (
             <button style={clearBtnStyle} onClick={handleClear}>Remove image</button>
           )}
+          </div>
+
+          {/* Assign user */}
+          <div>
+            <div style={sectionHeaderStyle}>Assigned Player</div>
+            <p style={{ color: '#666', fontSize: 11, marginBottom: 8, lineHeight: 1.5 }}>
+              Tie this sheet to a player for reaction prompts and ownership.
+            </p>
+            <select
+              value={sheet.owner_user_id ?? ''}
+              onChange={handleOwnerChange}
+              style={selectStyle}
+            >
+              <option value="">— unassigned —</option>
+              {users.map(u => (
+                <option key={u.id} value={u.id}>{u.username}</option>
+              ))}
+            </select>
+          </div>
         </div>
       </div>
     </div>
@@ -94,25 +130,20 @@ export function SheetSettings({ sheet, draggingImage, onUpdate, onClose }: Props
 
 // ── Styles ────────────────────────────────────────────────────────────────────
 
-const overlayStyle: React.CSSProperties = {
+const wrapperStyle: React.CSSProperties = {
   position: 'fixed',
-  inset: 0,
-  background: 'rgba(0,0,0,0.45)',
+  top: 60,
+  right: 210,   // sits just left of the 200px sidebar
   zIndex: 9000,
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  pointerEvents: 'none',
+  pointerEvents: 'auto',
 };
 
 const dialogStyle: React.CSSProperties = {
   background: '#12122a',
   border: '1px solid #3a3a6a',
   borderRadius: 8,
-  width: 320,
-  maxWidth: '90vw',
+  width: 296,
   boxShadow: '0 16px 48px rgba(0,0,0,0.7)',
-  pointerEvents: 'auto',
 };
 
 const titleBarStyle: React.CSSProperties = {
@@ -167,4 +198,15 @@ const clearBtnStyle: React.CSSProperties = {
   cursor: 'pointer',
   fontSize: 11,
   padding: '3px 10px',
+};
+
+const selectStyle: React.CSSProperties = {
+  width: '100%',
+  background: '#0d0d1a',
+  border: '1px solid #3a3a6a',
+  borderRadius: 5,
+  color: '#cdd6f4',
+  fontSize: 13,
+  padding: '6px 8px',
+  cursor: 'pointer',
 };

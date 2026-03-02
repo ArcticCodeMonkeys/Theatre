@@ -16,7 +16,10 @@ import {
   CanvasState, PlacedImage, LayerName,
   moveToFront, moveToBack, moveForward, moveBackward,
   setLayer, getLayer,
+  serializeState, hydrateState,
 } from './renderer/canvasState';
+import socket from './lib/socket';
+import { OnlineUser, UserList } from './ui/UserList';
 
 const INITIAL_STATE: CanvasState = {
   mapLayer: [], tokenLayer: [], selectedId: null, activeLayer: 'token',
@@ -43,10 +46,54 @@ export function App({ user }: { user: AppUser }) {
   const [windows, setWindows] = useState<WindowEntry[]>([]);
   const [savedSheet, setSavedSheet] = useState<CharacterSheet | undefined>();
   const [targetingMode, setTargetingMode] = useState<TargetingMode | null>(null);
+  const [onlineUsers, setOnlineUsers] = useState<OnlineUser[]>([]);
+  const mapPushTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Track whether the initial map load has completed so we don't echo the
+  // hydrated state back to the server immediately.
+  const mapLoadedRef = useRef(false);
 
   const handleStateChange = useCallback((next: CanvasState) => {
-    stateRef.current = next; setVersion(v => v + 1);
+    stateRef.current = next;
+    setVersion(v => v + 1);
+    if (!mapLoadedRef.current) return; // skip push until initial load done
+    if (mapPushTimer.current) clearTimeout(mapPushTimer.current);
+    mapPushTimer.current = setTimeout(() => {
+      socket.emit('map:push', serializeState(next));
+    }, 150);
   }, []);
+
+  // ── Map sync + presence ─────────────────────────────────────────────────
+  useEffect(() => {
+    // Load initial map from DB
+    fetch('http://localhost:3001/api/map', { credentials: 'include' })
+      .then(r => r.json())
+      .then(async (raw) => {
+        const hydrated = await hydrateState(raw as Parameters<typeof hydrateState>[0]);
+        stateRef.current = { ...stateRef.current, ...hydrated };
+        setVersion(v => v + 1);
+        mapLoadedRef.current = true;
+      })
+      .catch(() => { mapLoadedRef.current = true; });
+
+    // Register presence
+    socket.emit('user:join', { id: user.id, username: user.username ?? user.email, avatar_url: user.avatar_url });
+
+    // Receive map updates from other clients
+    socket.on('map:update', (raw: Parameters<typeof hydrateState>[0]) => {
+      hydrateState(raw).then(hydrated => {
+        stateRef.current = { ...stateRef.current, ...hydrated };
+        setVersion(v => v + 1);
+      });
+    });
+
+    // Receive presence list
+    socket.on('users:update', (users: OnlineUser[]) => setOnlineUsers(users));
+
+    return () => {
+      socket.off('map:update');
+      socket.off('users:update');
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleLayerChange = useCallback((layer: LayerName) => {
     handleStateChange({ ...stateRef.current, activeLayer: layer });
@@ -298,6 +345,9 @@ export function App({ user }: { user: AppUser }) {
           onMoveBackward={handleMoveBackward}
           onOpenSheet={handleOpenSheetById}
         />)}
+
+      {/* Active users overlay */}
+      <UserList users={onlineUsers} self={user} />
 
       {/* Targeting HUD */}
       {targetingMode && (

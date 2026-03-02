@@ -94,6 +94,8 @@ async function _init(): Promise<Database> {
 
   // chat title (nameplate)
   try { _db.run(`ALTER TABLE chat_messages ADD COLUMN title TEXT DEFAULT NULL`); } catch { /* already exists */ }
+  // sheet owner (for reactions)
+  try { _db.run(`ALTER TABLE sheets ADD COLUMN owner_user_id INTEGER DEFAULT NULL`); } catch { /* already exists */ }
 
   _db.run(`
     CREATE TABLE IF NOT EXISTS users (
@@ -105,6 +107,15 @@ async function _init(): Promise<Database> {
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     )
   `);
+
+  _db.run(`
+    CREATE TABLE IF NOT EXISTS map_state (
+      id   INTEGER PRIMARY KEY CHECK (id = 1),
+      data TEXT NOT NULL DEFAULT '{}'
+    )
+  `);
+  // Ensure the single map row always exists
+  _db.run(`INSERT OR IGNORE INTO map_state (id, data) VALUES (1, '{"mapLayer":[],"tokenLayer":[]}')`);
 
   _db.run(`
     CREATE TABLE IF NOT EXISTS chat_messages (

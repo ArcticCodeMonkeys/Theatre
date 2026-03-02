@@ -88,7 +88,7 @@ router.patch('/:id', async (req, res) => {
     'skill_bonuses','skill_levels','save_levels','hp_current','hp_max',
     'mental_current','mental_max','grave_current','grave_max',
     'ap_current','reactions_current','mana_current','mana_max',
-    'momentum','conditions','equipment','feats','attacks','notes','token_image',
+    'momentum','conditions','equipment','feats','attacks','notes','token_image','owner_user_id',
   ];
 
   const entries = Object.entries(b).filter(([k]) => allowed.includes(k));
