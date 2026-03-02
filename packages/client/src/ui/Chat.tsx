@@ -11,6 +11,8 @@ const API = 'http://localhost:3001';
 export interface ChatMessage {
   id: number;
   type: 'roll' | 'text';
+  /** Optional nameplate shown above roll cards (e.g. "Aria — Fireball"). */
+  title?: string;
   /** Human-readable label / plain text. */
   content: string;
   result?: RollResult;
@@ -23,6 +25,7 @@ function rowToMsg(row: Record<string, unknown>): ChatMessage {
   return {
     id: row.id as number,
     type: row.type as 'roll' | 'text',
+    title: row.title as string | undefined,
     content: row.content as string,
     result: row.result ? JSON.parse(row.result as string) as RollResult : undefined,
     created_at: row.created_at as string,
@@ -31,8 +34,8 @@ function rowToMsg(row: Record<string, unknown>): ChatMessage {
 
 /** Temporary negative id for optimistic messages. */
 let tempId = -1;
-function makeOptimistic(type: ChatMessage['type'], content: string, result?: RollResult): ChatMessage {
-  return { id: tempId--, type, content, result, created_at: new Date().toISOString() };
+function makeOptimistic(type: ChatMessage['type'], content: string, result?: RollResult, title?: string): ChatMessage {
+  return { id: tempId--, type, title, content, result, created_at: new Date().toISOString() };
 }
 
 // ── Constants ──────────────────────────────────────────────────────────────
@@ -60,14 +63,50 @@ function MsgBubble({ msg }: { msg: ChatMessage }) {
   }
 
   const { result } = msg;
-  if (!result) return null;
 
-  return (
-    <div style={{ ...bubbleStyle, background: '#13132a', border: '1px solid #3a3a6a' }}>
-      {/* Expression header */}
-      <div style={{ color: '#7b8cde', fontSize: 11, fontWeight: 700, marginBottom: 4 }}>
-        🎲 {result.expression}
+  // ─ Attack summary card (no dice breakdown, but has a title) ─
+  if (!result) {
+    return (
+      <div style={{ ...bubbleStyle, background: '#13132a', border: '1px solid #3a3a6a', padding: 0, overflow: 'hidden' }}>
+        {msg.title && (
+          <div style={{
+            background: '#1a1a3a', borderBottom: '1px solid #3a3a6a',
+            padding: '5px 10px', display: 'flex', alignItems: 'center', gap: 6,
+          }}>
+            <span style={{ fontSize: 10, color: '#7b8cde', fontWeight: 800, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+              ⚔ {msg.title}
+            </span>
+          </div>
+        )}
+        <div style={{ padding: '8px 10px', color: '#aaa', fontSize: 12, lineHeight: 1.6, whiteSpace: 'pre-line' }}>
+          {msg.content}
+        </div>
       </div>
+    );
+  }
+
+  // ─ Dice roll card (has full breakdown) ─
+  return (
+    <div style={{ ...bubbleStyle, background: '#13132a', border: '1px solid #3a3a6a', padding: 0, overflow: 'hidden' }}>
+      {/* Nameplate (optional — present if this roll was triggered by an attack) */}
+      {msg.title && (
+        <div style={{
+          background: '#1a1a3a',
+          borderBottom: '1px solid #3a3a6a',
+          padding: '5px 10px',
+          display: 'flex', alignItems: 'center', gap: 6,
+        }}>
+          <span style={{ fontSize: 10, color: '#7b8cde', fontWeight: 800, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+            ⚔ {msg.title}
+          </span>
+        </div>
+      )}
+
+      <div style={{ padding: '8px 10px' }}>
+        {/* Expression header */}
+        <div style={{ color: '#7b8cde', fontSize: 11, fontWeight: 700, marginBottom: 4 }}>
+          🎲 {result.expression}
+        </div>
 
       {/* Per-term breakdown */}
       <div style={{ fontSize: 11, color: '#888', lineHeight: 1.6 }}>
@@ -114,6 +153,14 @@ function MsgBubble({ msg }: { msg: ChatMessage }) {
       <div style={{ borderTop: '1px solid #2a2a4a', marginTop: 5, paddingTop: 4, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <span style={{ color: '#666', fontSize: 11 }}>Total</span>
         <span style={{ color: '#f1c40f', fontSize: 18, fontWeight: 800 }}>{result.total}</span>
+      </div>
+
+      {/* Below-roll content line (targets, conditions, etc.) */}
+      {msg.content && (
+        <div style={{ marginTop: 6, paddingTop: 5, borderTop: '1px solid #2a2a4a', color: '#888', fontSize: 11, lineHeight: 1.5 }}>
+          {msg.content}
+        </div>
+      )}
       </div>
     </div>
   );

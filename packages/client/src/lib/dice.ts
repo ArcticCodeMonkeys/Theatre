@@ -175,3 +175,21 @@ export function buildExpression(
   if (modifier !== 0) parts.push(String(modifier));
   return parts.join(' + ') || '0';
 }
+
+// ── Variable substitution ─────────────────────────────────────────────────
+
+export type DiceVars = Record<string, number>;
+
+/**
+ * Substitute named variables (e.g. MIG, DEX, PB) with their numeric values
+ * before parsing. Matching is whole-word and case-insensitive.
+ *
+ * Negative substituted values are wrapped in parens so the parser sees them
+ * as valid constants, e.g. -2 → (-2). Positive values substitute directly.
+ */
+export function resolveVariables(expr: string, vars: DiceVars): string {
+  return Object.entries(vars).reduce((acc, [key, val]) => {
+    const replacement = val < 0 ? `(${val})` : String(val);
+    return acc.replace(new RegExp(`\\b${key}\\b`, 'gi'), replacement);
+  }, expr);
+}

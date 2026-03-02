@@ -17,15 +17,15 @@ router.get('/', async (_req, res) => {
 });
 
 // ── POST /api/chat ────────────────────────────────────────────────────────
-// Body: { type: 'text' | 'roll', content: string, result?: string (JSON) }
+// Body: { type: 'text' | 'roll', title?: string, content: string, result?: string (JSON) }
 router.post('/', async (req, res) => {
   const db = await getDb();
-  const { type = 'text', content = '', result = null } = req.body ?? {};
+  const { type = 'text', title = null, content = '', result = null } = req.body ?? {};
 
   try {
     db.run(
-      `INSERT INTO chat_messages (type, content, result) VALUES (?, ?, ?)`,
-      [type, content, result ? JSON.stringify(result) : null],
+      `INSERT INTO chat_messages (type, title, content, result) VALUES (?, ?, ?, ?)`,
+      [type, title, content, result ? JSON.stringify(result) : null],
     );
     persist();
 

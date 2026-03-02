@@ -5,7 +5,10 @@ import {
   SkillBonuses, SkillLevels, SaveLevels, Equipment,
   ProficiencyTier, PROFICIENCY_TIERS,
   DEFAULT_SKILL_BONUSES, DEFAULT_SKILL_LEVELS, DEFAULT_SAVE_LEVELS, DEFAULT_EQUIPMENT,
+  AttackEntry, DamageEntry, AttackType, AttackTarget,
+  ActiveCondition,
 } from '../types/sheets';
+import { resolveVariables, DiceVars } from '../lib/dice';
 
 const API = 'http://localhost:3001';
 
@@ -89,13 +92,296 @@ function SectionHeader({ title }: { title: string }) {
   return <div style={sectionLabelStyle}>{title}</div>;
 }
 
-interface Props { sheet: Sheet; onUpdate: (updated: Sheet) => void; }
+// ─── Attacks & Spells sub-components ─────────────────────────────────────────
 
-export function CharacterSheet({ sheet, onUpdate }: Props) {
+const ATTACK_TARGETS: AttackTarget[] = ['Creature(s)', 'Cone', 'Sphere', 'Cube', 'Cylinder', 'Object'];
+const RADIUS_TARGETS: AttackTarget[] = ['Sphere', 'Cube', 'Cylinder'];
+const SAVES_OPTIONS: [string, string][] = [
+  ['MIG', 'Defend'], ['DEX', 'Avoid'], ['WIL', 'Resist'], ['PRE', 'Persist'],
+];
+const ATTACK_TYPE_COLOR: Record<AttackType, string> = { Attack: '#e05050', Spell: '#9b59b6' };
+const STAT_VAR_HINT = 'Tip: use MIG, DEX, WIL, PRE or PB as tokens, e.g. 1d6 + MIG';
+
+interface AttackCardProps {
+  attack: AttackEntry;
+  expanded: boolean;
+  onToggle: () => void;
+  onUpdate: (a: AttackEntry) => void;
+  onRemove: () => void;
+  onUseAttack?: () => void;
+  statVars: DiceVars;
+}
+function AttackCard({ attack, expanded, onToggle, onUpdate, onRemove, onUseAttack, statVars }: AttackCardProps) {
+  const upd = <K extends keyof AttackEntry>(key: K, val: AttackEntry[K]) =>
+    onUpdate({ ...attack, [key]: val });
+
+  const setDmg = (i: number, d: DamageEntry) =>
+    onUpdate({ ...attack, damages: attack.damages.map((x, j) => j === i ? d : x) });
+  const addDmg = () =>
+    onUpdate({ ...attack, damages: [...attack.damages, { expression: '1d6', type: 'Physical' }] });
+  const removeDmg = (i: number) =>
+    onUpdate({ ...attack, damages: attack.damages.filter((_, j) => j !== i) });
+
+  const addCond = () => onUpdate({ ...attack, conditions: [...attack.conditions, ''] });
+  const setCond = (i: number, v: string) =>
+    onUpdate({ ...attack, conditions: attack.conditions.map((c, j) => j === i ? v : c) });
+  const removeCond = (i: number) =>
+    onUpdate({ ...attack, conditions: attack.conditions.filter((_, j) => j !== i) });
+
+  const toggleSave = (s: string) => upd('saves',
+    attack.saves.includes(s) ? attack.saves.filter(x => x !== s) : [...attack.saves, s]);
+
+  const showRadius = RADIUS_TARGETS.includes(attack.target);
+  const dmgSummary = attack.damages
+    .map(d => `${resolveVariables(d.expression, statVars)} ${d.type}`)
+    .join(' + ');
+  const rangeSummary = `${attack.rangeShort}/${attack.rangeLong} ft`;
+
+  return (
+    <div style={attackCardStyle}>
+      {/* Header row — always visible */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '7px 10px', cursor: 'pointer', userSelect: 'none' }} onClick={onToggle}>
+        <span style={{ ...attackBadgeStyle, background: ATTACK_TYPE_COLOR[attack.attackType] }}>{attack.attackType}</span>
+        <span style={{ flex: 1, fontWeight: 600, fontSize: 13, color: '#cdd6f4', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {attack.name || '(unnamed)'}
+        </span>
+        {attack.saves.length > 0 && (
+          <span style={{ fontSize: 10, color: '#888' }}>{attack.saves.map(s => SAVES_OPTIONS.find(x => x[0] === s)?.[1] ?? s).join(', ')}</span>
+        )}
+        <span style={{ fontSize: 11, color: '#7b8cde', border: '1px solid #7b8cde40', borderRadius: 3, padding: '1px 5px' }}>{rangeSummary}</span>
+        {dmgSummary && <span style={{ fontSize: 11, color: '#aaa' }}>{dmgSummary}</span>}
+        {onUseAttack && (
+          <button
+            style={useAttackBtnStyle}
+            onClick={e => { e.stopPropagation(); onUseAttack(); }}
+            title="Use this attack — enter targeting mode">
+            ▶
+          </button>
+        )}
+        <span style={{ color: '#555', fontSize: 11, marginLeft: 2 }}>{expanded ? '▲' : '▼'}</span>
+        <button style={attackRemoveBtnStyle} onClick={e => { e.stopPropagation(); onRemove(); }}>✕</button>
+      </div>
+
+      {expanded && (
+        <div style={{ padding: '4px 10px 10px', borderTop: '1px solid #1e1e3a' }}>
+
+          {/* Row 1: Name + Type */}
+          <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+            <div style={{ flex: 3 }}>
+              <div style={atkLabelStyle}>Name</div>
+              <input value={attack.name} onChange={e => upd('name', e.target.value)} style={atkInputStyle} placeholder="Attack name" />
+            </div>
+            <div style={{ flex: 1 }}>
+              <div style={atkLabelStyle}>Type</div>
+              <select value={attack.attackType} onChange={e => upd('attackType', e.target.value as AttackType)} style={atkSelectStyle}>
+                <option>Attack</option>
+                <option>Spell</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Row 2: Target + Count/Radius + Range */}
+          <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+            <div style={{ flex: 2 }}>
+              <div style={atkLabelStyle}>Target</div>
+              <select value={attack.target} onChange={e => upd('target', e.target.value as AttackTarget)} style={atkSelectStyle}>
+                {ATTACK_TARGETS.map(t => <option key={t}>{t}</option>)}
+              </select>
+            </div>
+            {attack.target === 'Creature(s)' && (
+              <div style={{ flex: 1 }}>
+                <div style={atkLabelStyle}>Count</div>
+                <input type="number" min={1} value={attack.targetCount ?? 1}
+                  onChange={e => upd('targetCount', Math.max(1, parseInt(e.target.value) || 1))} style={atkInputStyle} />
+              </div>
+            )}
+            {showRadius && (
+              <div style={{ flex: 1 }}>
+                <div style={atkLabelStyle}>Radius (ft)</div>
+                <input type="number" min={5} step={5} value={attack.radius ?? 10}
+                  onChange={e => upd('radius', Math.max(5, parseInt(e.target.value) || 5))} style={atkInputStyle} />
+              </div>
+            )}
+            <div style={{ flex: 1 }}>
+              <div style={atkLabelStyle}>Short Range (ft)</div>
+              <input type="number" min={5} step={5} value={attack.rangeShort}
+                onChange={e => upd('rangeShort', Math.max(0, parseInt(e.target.value) || 0))} style={atkInputStyle} />
+            </div>
+            <div style={{ flex: 1 }}>
+              <div style={atkLabelStyle}>Long Range (ft)</div>
+              <input type="number" min={5} step={5} value={attack.rangeLong}
+                onChange={e => upd('rangeLong', Math.max(0, parseInt(e.target.value) || 0))} style={atkInputStyle} />
+            </div>
+          </div>
+
+          {/* Damage entries */}
+          <div style={{ marginTop: 10 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+              <span style={atkLabelStyle}>Damage</span>
+              <button style={atkAddBtnStyle} onClick={addDmg}>+ Add</button>
+            </div>
+            {attack.damages.map((d, i) => {
+              const resolved = resolveVariables(d.expression, statVars);
+              const showResolved = resolved !== d.expression;
+              return (
+                <div key={i} style={{ marginBottom: 6 }}>
+                  <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                    <input value={d.expression} onChange={e => setDmg(i, { ...d, expression: e.target.value })}
+                      style={{ ...atkInputStyle, flex: 2 }} placeholder="2d6 + MIG" />
+                    <input value={d.type} onChange={e => setDmg(i, { ...d, type: e.target.value })}
+                      style={{ ...atkInputStyle, flex: 1 }} placeholder="Damage type" />
+                    {attack.damages.length > 1 && (
+                      <button style={atkRemoveRowBtnStyle} onClick={() => removeDmg(i)}>✕</button>
+                    )}
+                  </div>
+                  {showResolved && (
+                    <div style={{ color: '#555', fontSize: 10, paddingLeft: 2, marginTop: 2 }}>= {resolved}</div>
+                  )}
+                </div>
+              );
+            })}
+            <div style={{ color: '#3a3a5a', fontSize: 10, marginTop: 4, lineHeight: 1.5 }}>{STAT_VAR_HINT}</div>
+          </div>
+
+          {/* Saves */}
+          <div style={{ marginTop: 10 }}>
+            <div style={atkLabelStyle}>Saves Provoked</div>
+            <div style={{ display: 'flex', gap: 14, marginTop: 5, flexWrap: 'wrap' }}>
+              {SAVES_OPTIONS.map(([key, label]) => {
+                const active = attack.saves.includes(key);
+                return (
+                  <label key={key} style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', fontSize: 12, color: active ? '#cdd6f4' : '#555', userSelect: 'none' }}>
+                    <input type="checkbox" checked={active} onChange={() => toggleSave(key)} style={{ accentColor: '#7b8cde' }} />
+                    {label}
+                  </label>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Conditions */}
+          <div style={{ marginTop: 10 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+              <span style={atkLabelStyle}>Conditions Applied</span>
+              <button style={atkAddBtnStyle} onClick={addCond}>+ Add</button>
+            </div>
+            {attack.conditions.length === 0 && (
+              <span style={{ color: '#444', fontSize: 11 }}>None</span>
+            )}
+            {attack.conditions.map((c, i) => (
+              <div key={i} style={{ display: 'flex', gap: 6, marginBottom: 5, alignItems: 'center' }}>
+                <input value={c} onChange={e => setCond(i, e.target.value)}
+                  style={{ ...atkInputStyle, flex: 1 }} placeholder="Condition name" />
+                <button style={atkRemoveRowBtnStyle} onClick={() => removeCond(i)}>✕</button>
+              </div>
+            ))}
+          </div>
+
+          {/* Duration (Spells only) */}
+          {attack.attackType === 'Spell' && (
+            <div style={{ marginTop: 10 }}>
+              <div style={atkLabelStyle}>Duration (rounds)</div>
+              <input
+                type="number" min={1} value={attack.duration ?? 1}
+                onChange={e => upd('duration', Math.max(1, parseInt(e.target.value) || 1))}
+                style={{ ...atkInputStyle, width: 80 }}
+              />
+            </div>
+          )}
+
+        </div>
+      )}
+    </div>
+  );
+}
+
+interface AttacksSectionProps { attacks: AttackEntry[]; onChange: (a: AttackEntry[]) => void; statVars: DiceVars; onUseAttack?: (a: AttackEntry) => void; }
+function AttacksSection({ attacks, onChange, statVars, onUseAttack }: AttacksSectionProps) {
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  const addAttack = () => {
+    const id = `${Date.now()}`;
+    const blank: AttackEntry = {
+      id, name: 'New Attack',
+      attackType: 'Attack', target: 'Creature(s)', targetCount: 1,
+      rangeShort: 30, rangeLong: 60,
+      damages: [{ expression: '1d6', type: 'Physical' }],
+      saves: [], conditions: [],
+    };
+    onChange([...attacks, blank]);
+    setExpandedId(id);
+  };
+
+  return (
+    <div>
+      {attacks.length === 0 && (
+        <div style={{ color: '#3a3a5a', fontSize: 12, marginBottom: 6 }}>No attacks or spells yet.</div>
+      )}
+      {attacks.map(a => (
+        <AttackCard
+          key={a.id}
+          attack={a}
+          expanded={expandedId === a.id}
+          onToggle={() => setExpandedId(expandedId === a.id ? null : a.id)}
+          onUpdate={updated => onChange(attacks.map(x => x.id === updated.id ? updated : x))}
+          onRemove={() => { onChange(attacks.filter(x => x.id !== a.id)); if (expandedId === a.id) setExpandedId(null); }}
+          statVars={statVars}
+          onUseAttack={onUseAttack ? () => onUseAttack(a) : undefined}
+        />
+      ))}
+      <button style={addAttackBtnStyle} onClick={addAttack}>+ Add Attack / Spell</button>
+    </div>
+  );
+}
+
+// ─── Condition helpers ────────────────────────────────────────────────────────
+
+function severityColor(sev: number): string {
+  if (sev <= 1) return '#f38ba8';
+  if (sev === 2) return '#fab387';
+  return '#ff5555';
+}
+
+function ConditionAdder({ onAdd }: { onAdd: (name: string) => void }) {
+  const [val, setVal] = useState('');
+  const submit = () => {
+    const trimmed = val.trim();
+    if (!trimmed) return;
+    onAdd(trimmed);
+    setVal('');
+  };
+  return (
+    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+      <input
+        value={val}
+        onChange={e => setVal(e.target.value)}
+        onKeyDown={e => { if (e.key === 'Enter') submit(); }}
+        placeholder="Add condition…"
+        style={{ ...conditionInputStyle }}
+      />
+      <button style={addCondBtnStyle} onClick={submit}>+ Add</button>
+    </div>
+  );
+}
+
+// ─── Main component ───────────────────────────────────────────────────────────
+
+interface Props { sheet: Sheet; onUpdate: (updated: Sheet) => void; onUseAttack?: (attack: AttackEntry) => void; }
+
+export function CharacterSheet({ sheet, onUpdate, onUseAttack }: Props) {
   const [local, setLocal] = useState<Sheet>(sheet);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  useEffect(() => { setLocal(sheet); }, [sheet.id]);
+  // Sync from props when the sheet is swapped (id change) OR when an external
+  // action mutates hp / conditions (e.g. damage application from targeting).
+  // Only sync fields that changed to avoid stomping in-progress edits.
+  useEffect(() => {
+    setLocal(prev => {
+      if (prev.id !== sheet.id) return sheet;          // new sheet opened
+      if (prev.hp_current === sheet.hp_current && prev.conditions === sheet.conditions) return prev;
+      return { ...prev, hp_current: sheet.hp_current, conditions: sheet.conditions };
+    });
+  }, [sheet.id, sheet.hp_current, sheet.conditions]);
 
   const persist = useCallback((next: Sheet) => {
     if (saveTimer.current) clearTimeout(saveTimer.current);
@@ -159,10 +445,31 @@ export function CharacterSheet({ sheet, onUpdate }: Props) {
     });
   }, [persist]);
 
+  const setAttacks = useCallback((list: AttackEntry[]) => {
+    setLocal(prev => { const next = { ...prev, attacks: JSON.stringify(list) }; persist(next); return next; });
+  }, [persist]);
+
   const removeCondition = useCallback((i: number) => {
     setLocal(prev => {
-      const list: string[] = (() => { try { return JSON.parse(prev.conditions); } catch { return []; } })();
+      const list: ActiveCondition[] = (() => { try { return JSON.parse(prev.conditions); } catch { return []; } })();
       const next = { ...prev, conditions: JSON.stringify(list.filter((_, j) => j !== i)) };
+      persist(next); return next;
+    });
+  }, [persist]);
+
+  const adjustConditionSeverity = useCallback((i: number, delta: number) => {
+    setLocal(prev => {
+      const list: ActiveCondition[] = (() => { try { return JSON.parse(prev.conditions); } catch { return []; } })();
+      const updated = list.map((c, j) => j === i ? { ...c, severity: Math.max(1, c.severity + delta) } : c);
+      const next = { ...prev, conditions: JSON.stringify(updated) };
+      persist(next); return next;
+    });
+  }, [persist]);
+
+  const addCondition = useCallback((name: string) => {
+    setLocal(prev => {
+      const list: ActiveCondition[] = (() => { try { return JSON.parse(prev.conditions); } catch { return []; } })();
+      const next = { ...prev, conditions: JSON.stringify([...list, { name, severity: 1 }]) };
       persist(next); return next;
     });
   }, [persist]);
@@ -171,7 +478,17 @@ export function CharacterSheet({ sheet, onUpdate }: Props) {
   const skillLevels: SkillLevels = (() => { try { return { ...DEFAULT_SKILL_LEVELS, ...JSON.parse(local.skill_levels) }; } catch { return { ...DEFAULT_SKILL_LEVELS }; } })();
   const saveLevels: SaveLevels = (() => { try { return { ...DEFAULT_SAVE_LEVELS, ...JSON.parse(local.save_levels) }; } catch { return { ...DEFAULT_SAVE_LEVELS }; } })();
   const equipment: Equipment  = (() => { try { return { ...DEFAULT_EQUIPMENT,       ...JSON.parse(local.equipment)       }; } catch { return { ...DEFAULT_EQUIPMENT };       } })();
-  const activeConditions: string[] = (() => { try { return JSON.parse(local.conditions) as string[]; } catch { return []; } })();
+  const activeConditions: ActiveCondition[] = (() => {
+    try {
+      const raw = JSON.parse(local.conditions);
+      // Migrate old string[] format gracefully
+      if (Array.isArray(raw)) return raw.map((c: unknown) =>
+        typeof c === 'string' ? { name: c, severity: 1 } : c as ActiveCondition
+      );
+      return [];
+    } catch { return []; }
+  })();
+  const attacksList: AttackEntry[] = (() => { try { return JSON.parse(local.attacks) as AttackEntry[]; } catch { return []; } })();
   const pb = 1 + Math.ceil(local.level / 3);
 
   return (
@@ -288,20 +605,25 @@ export function CharacterSheet({ sheet, onUpdate }: Props) {
         </div>
 
         {/* Conditions */}
-        {activeConditions.length > 0 && (
-          <>
-            <SectionHeader title="Conditions" />
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 14 }}>
-              {activeConditions.map((c, i) => (
-                <span key={i} style={conditionPillStyle}>
-                  {c}
-                  <button style={{ marginLeft: 5, background: 'none', border: 'none', color: '#f38ba8', cursor: 'pointer', padding: 0, fontSize: 14, lineHeight: 1 }}
-                    onClick={() => removeCondition(i)}>x</button>
-                </span>
-              ))}
-            </div>
-          </>
-        )}
+        <SectionHeader title="Conditions" />
+        <div style={{ marginBottom: 14 }}>
+          {activeConditions.length === 0 && (
+            <div style={{ color: '#3a3a5a', fontSize: 12, marginBottom: 6 }}>No active conditions.</div>
+          )}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
+            {activeConditions.map((c, i) => (
+              <div key={i} style={conditionCardStyle}>
+                <span style={{ color: '#f38ba8', fontWeight: 600, fontSize: 13, flex: 1 }}>{c.name}</span>
+                <span style={{ color: '#888', fontSize: 11, marginLeft: 4, marginRight: 6 }}>Sev.</span>
+                <button style={sevBtnStyle} onClick={() => adjustConditionSeverity(i, -1)} title="Decrease severity">−</button>
+                <span style={{ minWidth: 18, textAlign: 'center', fontSize: 13, fontWeight: 700, color: severityColor(c.severity) }}>{c.severity}</span>
+                <button style={sevBtnStyle} onClick={() => adjustConditionSeverity(i, +1)} title="Increase severity">+</button>
+                <button style={{ ...sevBtnStyle, marginLeft: 6, color: '#f38ba8', borderColor: '#f38ba830' }} onClick={() => removeCondition(i)} title="Clear condition">✕</button>
+              </div>
+            ))}
+          </div>
+          <ConditionAdder onAdd={addCondition} />
+        </div>
 
         {/* Equipment */}
         <SectionHeader title="Equipment" />
@@ -314,6 +636,14 @@ export function CharacterSheet({ sheet, onUpdate }: Props) {
             </div>
           ))}
         </div>
+
+        {/* Attacks & Spells */}
+        <SectionHeader title="Attacks & Spells" />
+        <AttacksSection attacks={attacksList} onChange={setAttacks} statVars={{
+          MIG: local.mig_score, DEX: local.dex_score,
+          WIL: local.wil_score, PRE: local.pre_score,
+          PB: pb,
+        }} onUseAttack={onUseAttack} />
 
         {/* Feats */}
         <SectionHeader title="Feats & Features" />
@@ -339,3 +669,21 @@ const tierSelectStyle: React.CSSProperties = { background: '#1a1a2e', border: '1
 const textInputStyle: React.CSSProperties = { background: '#1a1a2e', border: '1px solid #2a2a4a', borderRadius: 4, color: '#cdd6f4', padding: '4px 7px', fontSize: 13, flex: 1, minWidth: 0, outline: 'none', boxSizing: 'border-box' };
 const textareaStyle: React.CSSProperties = { width: '100%', background: '#0f0f1e', border: '1px solid #2a2a4a', borderRadius: 5, color: '#cdd6f4', padding: '10px', fontSize: 13, resize: 'none', outline: 'none', fontFamily: 'sans-serif', lineHeight: 1.6, boxSizing: 'border-box', marginBottom: 4 };
 const conditionPillStyle: React.CSSProperties = { background: '#1e1e3a', border: '1px solid #f38ba8', borderRadius: 12, color: '#f38ba8', padding: '3px 10px', fontSize: 12, display: 'flex', alignItems: 'center' };
+
+// ── Condition tracker styles ──────────────────────────────────────────────────
+const conditionCardStyle: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 4, background: '#0e0e1e', border: '1px solid #2a1a2a', borderRadius: 6, padding: '6px 10px', minWidth: 160 };
+const sevBtnStyle: React.CSSProperties = { background: 'none', border: '1px solid #3a2a3a', borderRadius: 3, color: '#cdd6f4', cursor: 'pointer', fontSize: 13, width: 22, height: 22, lineHeight: '20px', padding: 0, textAlign: 'center' };
+const conditionInputStyle: React.CSSProperties = { background: '#1a1a2e', border: '1px solid #2a2a4a', borderRadius: 4, color: '#cdd6f4', padding: '4px 8px', fontSize: 12, flex: 1, outline: 'none', boxSizing: 'border-box' };
+const addCondBtnStyle: React.CSSProperties = { background: 'none', border: '1px solid #2a2a4a', borderRadius: 3, color: '#7b8cde', cursor: 'pointer', fontSize: 11, padding: '4px 10px', whiteSpace: 'nowrap' };
+
+// ── Attack card styles ────────────────────────────────────────────────────────
+const attackCardStyle: React.CSSProperties = { background: '#0e0e1e', border: '1px solid #2a2a4a', borderRadius: 6, marginBottom: 6, overflow: 'hidden' };
+const attackBadgeStyle: React.CSSProperties = { borderRadius: 3, padding: '2px 7px', fontSize: 11, fontWeight: 700, color: '#fff', flexShrink: 0 };
+const attackRemoveBtnStyle: React.CSSProperties = { background: 'none', border: 'none', color: '#555', cursor: 'pointer', fontSize: 13, padding: '0 2px', lineHeight: 1, flexShrink: 0 };
+const useAttackBtnStyle: React.CSSProperties = { background: '#1a2a1a', border: '1px solid #2ecc7140', borderRadius: 3, color: '#2ecc71', cursor: 'pointer', fontSize: 11, padding: '2px 7px', flexShrink: 0, fontWeight: 700 };
+const atkLabelStyle: React.CSSProperties = { color: '#555', fontSize: 10, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 3 };
+const atkInputStyle: React.CSSProperties = { background: '#1a1a2e', border: '1px solid #2a2a4a', borderRadius: 4, color: '#cdd6f4', padding: '4px 7px', fontSize: 12, width: '100%', outline: 'none', boxSizing: 'border-box' };
+const atkSelectStyle: React.CSSProperties = { background: '#1a1a2e', border: '1px solid #2a2a4a', borderRadius: 4, color: '#cdd6f4', padding: '4px 6px', fontSize: 12, width: '100%', cursor: 'pointer', boxSizing: 'border-box' };
+const atkAddBtnStyle: React.CSSProperties = { background: 'none', border: '1px solid #2a2a4a', borderRadius: 3, color: '#7b8cde', cursor: 'pointer', fontSize: 11, padding: '2px 8px' };
+const atkRemoveRowBtnStyle: React.CSSProperties = { background: 'none', border: 'none', color: '#555', cursor: 'pointer', fontSize: 13, padding: '0 4px', flexShrink: 0 };
+const addAttackBtnStyle: React.CSSProperties = { marginTop: 4, background: 'none', border: '1px dashed #2a2a4a', borderRadius: 5, color: '#7b8cde', cursor: 'pointer', fontSize: 12, padding: '6px 0', width: '100%', marginBottom: 14 };

@@ -1,10 +1,12 @@
 import React, { useEffect, useRef, useCallback, useState } from 'react';
 import { ImageRecord } from '../types/images';
 import { CharacterSheet } from '../types/sheets';
+import { TargetingMode } from '../types/targeting';
 import {
   CanvasState, PlacedImage,
   getLayer, setLayer, allImages,
 } from './canvasState';
+import { distanceFt, getAoeTiles, isAreaAttack, FT_PER_TILE } from './targetingGeom';
 
 const CELL = 64;
 const API = 'http://localhost:3001';
@@ -43,7 +45,101 @@ function hitHandle(p: PlacedImage, mx: number, my: number): HandleType {
   return null;
 }
 
-// ─── Draw ─────────────────────────────────────────────────────────────────────
+// ─── Targeting overlay ────────────────────────────────────────────────────────
+
+function drawTargetingOverlay(canvas: HTMLCanvasElement, state: CanvasState, mode: TargetingMode) {
+  const ctx = canvas.getContext('2d')!;
+  const toks = allImages(state);
+  const { attack } = mode;
+  const isArea = isAreaAttack(attack.target);
+
+  // Global dim
+  ctx.fillStyle = 'rgba(0,0,0,0.42)';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  const attackerTok = mode.attackerTokenId ? toks.find(t => t.id === mode.attackerTokenId) : null;
+
+  if (!isArea) {
+    // Re-draw each sheet token on top of the dim with a range-indicating ring
+    for (const tok of toks) {
+      if (tok.sheetId === undefined) continue;
+      const { x, y, w, h } = toPixels(tok);
+      const dist = attackerTok ? distanceFt(attackerTok, tok) : 0;
+      const inShort = !attackerTok || dist <= attack.rangeShort;
+      const inLong  = !attackerTok || dist <= attack.rangeLong;
+      const selected = mode.selectedSheetIds.includes(tok.sheetId);
+
+      ctx.save();
+      ctx.globalAlpha = inLong ? 1 : 0.35;
+      ctx.translate(x + w / 2, y + h / 2);
+      ctx.rotate((tok.rotation * Math.PI) / 180);
+      ctx.drawImage(tok.htmlImg, -w / 2, -h / 2, w, h);
+      ctx.restore();
+
+      // Selection fill
+      if (selected) {
+        ctx.fillStyle = 'rgba(243,156,18,0.22)';
+        ctx.fillRect(x, y, w, h);
+      }
+
+      // Ring
+      ctx.strokeStyle = selected ? '#f39c12' : !inLong ? '#444' : !inShort ? '#e67e22' : '#2ecc71';
+      ctx.lineWidth = selected ? 3 : 2;
+      ctx.strokeRect(x + 2, y + 2, w - 4, h - 4);
+    }
+  } else {
+    // AoE preview / confirmed overlay
+    const center = mode.aoeCell ?? mode.hoveredCell;
+    if (center) {
+      const origin = attackerTok ? { col: attackerTok.col, row: attackerTok.row } : center;
+      const coneDist = Math.sqrt((center.col - origin.col) ** 2 + (center.row - origin.row) ** 2) * FT_PER_TILE;
+      const coneLen = coneDist > 0 ? coneDist : (attack.rangeShort || 20);
+      const tiles = getAoeTiles(attack.target, origin, center, attack.radius ?? 20, coneLen);
+
+      const confirmed = mode.aoeCell !== null;
+      ctx.fillStyle = confirmed ? 'rgba(243,112,168,0.38)' : 'rgba(123,140,222,0.28)';
+      for (const t of tiles) ctx.fillRect(t.col * CELL, t.row * CELL, CELL, CELL);
+
+      ctx.strokeStyle = confirmed ? 'rgba(243,112,168,0.85)' : 'rgba(123,140,222,0.55)';
+      ctx.lineWidth = 1;
+      for (const t of tiles) ctx.strokeRect(t.col * CELL + 0.5, t.row * CELL + 0.5, CELL - 1, CELL - 1);
+
+      // Re-draw tokens in AoE + pink ring
+      const tileSet = new Set(tiles.map(t => `${t.col},${t.row}`));
+      for (const tok of toks) {
+        if (!tileSet.has(`${tok.col},${tok.row}`)) continue;
+        const { x, y, w, h } = toPixels(tok);
+        ctx.save();
+        ctx.translate(x + w / 2, y + h / 2);
+        ctx.rotate((tok.rotation * Math.PI) / 180);
+        ctx.drawImage(tok.htmlImg, -w / 2, -h / 2, w, h);
+        ctx.restore();
+        if (tok.sheetId !== undefined) {
+          ctx.strokeStyle = '#f38ba8'; ctx.lineWidth = 2;
+          ctx.strokeRect(x + 2, y + 2, w - 4, h - 4);
+        }
+      }
+    }
+  }
+
+  // Hovered cell dashed cursor
+  if (mode.hoveredCell) {
+    const { col, row } = mode.hoveredCell;
+    ctx.strokeStyle = 'rgba(255,255,255,0.45)';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([4, 4]);
+    ctx.strokeRect(col * CELL + 1, row * CELL + 1, CELL - 2, CELL - 2);
+    ctx.setLineDash([]);
+  }
+
+  // Attacker token green indicator
+  if (attackerTok) {
+    const { x, y, w, h } = toPixels(attackerTok);
+    ctx.strokeStyle = '#7b8cde'; ctx.lineWidth = 3;
+    ctx.strokeRect(x + 1, y + 1, w - 2, h - 2);
+  }
+}
+
 
 function drawScene(canvas: HTMLCanvasElement, state: CanvasState) {
   const ctx = canvas.getContext('2d')!;
@@ -127,11 +223,16 @@ interface Props {
   onStateChange: (next: CanvasState) => void;
   draggingImage: ImageRecord | null;
   draggingSheet: CharacterSheet | null;
+  targetingMode: TargetingMode | null;
+  onTargetingUpdate: (update: Partial<TargetingMode>) => void;
   onContextMenu: (image: PlacedImage, clientX: number, clientY: number) => void;
 }
 
-export function MapCanvas({ stateRef, onStateChange, draggingImage, draggingSheet, onContextMenu }: Props) {
+export function MapCanvas({ stateRef, onStateChange, draggingImage, draggingSheet, targetingMode, onTargetingUpdate, onContextMenu }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  // Keep a ref so drawTargetingOverlay inside redraw always sees the latest value
+  const targetingRef = useRef<TargetingMode | null>(targetingMode);
+  useEffect(() => { targetingRef.current = targetingMode; });
 
   const drag = useRef<{
     type: 'move' | HandleType;
@@ -143,7 +244,9 @@ export function MapCanvas({ stateRef, onStateChange, draggingImage, draggingShee
   } | null>(null);
 
   const redraw = useCallback(() => {
-    if (canvasRef.current) drawScene(canvasRef.current, stateRef.current);
+    if (!canvasRef.current) return;
+    drawScene(canvasRef.current, stateRef.current);
+    if (targetingRef.current) drawTargetingOverlay(canvasRef.current, stateRef.current, targetingRef.current);
   }, [stateRef]);
 
   // Canvas resize
@@ -162,10 +265,11 @@ export function MapCanvas({ stateRef, onStateChange, draggingImage, draggingShee
   // Redraw on every render cycle (state changes bubble up through parent)
   useEffect(() => { redraw(); });
 
-  // Keyboard delete
+  // Keyboard delete — skip when targeting (App.tsx owns that)
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Delete' && e.key !== 'Backspace') return;
+      if (targetingRef.current) return;
       const s = stateRef.current;
       if (!s.selectedId) return;
       onStateChange({
@@ -184,6 +288,60 @@ export function MapCanvas({ stateRef, onStateChange, draggingImage, draggingShee
     const rect = canvasRef.current!.getBoundingClientRect();
     const mx = e.clientX - rect.left;
     const my = e.clientY - rect.top;
+
+    // ── Targeting mode ──────────────────────────────────────────────────────
+    if (targetingRef.current) {
+      const mode = targetingRef.current;
+      const col = Math.floor(mx / CELL);
+      const row = Math.floor(my / CELL);
+      const attack = mode.attack;
+
+      if (isAreaAttack(attack.target)) {
+        // Place AoE centre / cone endpoint
+        onTargetingUpdate({ aoeCell: { col, row }, warnings: [] });
+      } else {
+        // Try to select/deselect a token
+        const s = stateRef.current;
+        const allToks = [...s.mapLayer, ...s.tokenLayer].reverse();
+        const clicked = allToks.find(t => t.sheetId !== undefined && hitTest(t, mx, my));
+
+        const warnings: string[] = [];
+        if (clicked && clicked.sheetId !== undefined) {
+          const attackerTok = mode.attackerTokenId
+            ? [...s.mapLayer, ...s.tokenLayer].find(t => t.id === mode.attackerTokenId)
+            : null;
+
+          if (attackerTok) {
+            const dist = distanceFt(attackerTok, clicked);
+            if (dist > attack.rangeLong) {
+              warnings.push(`Out of range (${Math.round(dist)} ft — max ${attack.rangeLong} ft)`);
+            } else if (dist > attack.rangeShort) {
+              warnings.push(`Long range — attack will have Graze (${Math.round(dist)} ft)`);
+            }
+          }
+
+          const current = mode.selectedSheetIds;
+          const alreadySelected = current.includes(clicked.sheetId);
+          const maxTargets = attack.targetCount ?? 1;
+
+          let newIds: number[];
+          if (alreadySelected) {
+            newIds = current.filter(id => id !== clicked.sheetId);
+          } else {
+            if (current.length >= maxTargets) {
+              warnings.push(`Already at max targets (${maxTargets}) — deselect one first or confirm as-is`);
+            }
+            newIds = [...current, clicked.sheetId];
+          }
+          onTargetingUpdate({ selectedSheetIds: newIds, warnings });
+        } else {
+          onTargetingUpdate({ warnings: ['No sheet-linked token at that position'] });
+        }
+      }
+      return; // swallow all normal canvas interaction
+    }
+
+    // ── Normal canvas interaction ────────────────────────────────────────────
     const s = stateRef.current;
 
     if (s.selectedId) {
@@ -210,6 +368,16 @@ export function MapCanvas({ stateRef, onStateChange, draggingImage, draggingShee
 
   // ── Mouse move ───────────────────────────────────────────────────────────
   const onMouseMove = (e: React.MouseEvent) => {
+    // Update hovered cell during targeting for live AoE preview
+    if (targetingRef.current) {
+      const rect = canvasRef.current!.getBoundingClientRect();
+      const col = Math.floor((e.clientX - rect.left) / CELL);
+      const row = Math.floor((e.clientY - rect.top) / CELL);
+      if (col !== targetingRef.current.hoveredCell?.col || row !== targetingRef.current.hoveredCell?.row) {
+        onTargetingUpdate({ hoveredCell: { col, row } });
+      }
+      return;
+    }
     if (!drag.current) return;
     const rect = canvasRef.current!.getBoundingClientRect();
     const mx = e.clientX - rect.left;

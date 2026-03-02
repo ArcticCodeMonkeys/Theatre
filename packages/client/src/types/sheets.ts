@@ -1,6 +1,35 @@
 export type DieFace = 1 | 4 | 6 | 8 | 10 | 12;
 export const DIE_OPTIONS: DieFace[] = [1, 4, 6, 8, 10, 12];
 
+export type AttackType   = 'Attack' | 'Spell';
+export type AttackTarget = 'Creature(s)' | 'Cone' | 'Sphere' | 'Cube' | 'Cylinder' | 'Object';
+
+export interface DamageEntry {
+  expression: string; // e.g. "4d4 + MIG" — supports MIG/DEX/WIL/PRE/PB tokens
+  type: string;       // e.g. "Fire"
+}
+
+export interface AttackEntry {
+  id: string;
+  name: string;
+  attackType: AttackType;
+  target: AttackTarget;
+  targetCount?: number; // used when target === 'Creature(s)'
+  rangeShort: number;   // short range in feet
+  rangeLong: number;    // long range in feet (has Graze)
+  radius?: number;      // used when target is Sphere / Cube / Cylinder
+  duration?: number;    // rounds (Spell only)
+  damages: DamageEntry[];
+  saves: string[];      // subset of ['MIG','DEX','WIL','PRE']
+  conditions: string[];
+}
+
+/** A condition currently afflicting the character. */
+export interface ActiveCondition {
+  name: string;
+  severity: number; // 1-based; 1 = base, 2+ = escalating
+}
+
 export type ProficiencyTier = 0 | 1 | 2 | 3 | 4;
 export const PROFICIENCY_TIERS = ['Untrained', 'Apprentice', 'Skilled', 'Expert', 'Master'] as const;
 

@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { CharacterSheet as Sheet } from '../types/sheets';
+import { CharacterSheet as Sheet, AttackEntry } from '../types/sheets';
 import { CharacterSheet } from './CharacterSheet';
 
 export interface SheetWindowState {
@@ -15,12 +15,13 @@ interface Props extends SheetWindowState {
   onClose: (id: number) => void;
   onUpdate: (updated: Sheet) => void;
   onFocus: (id: number) => void;
+  onUseAttack?: (attack: AttackEntry) => void;
 }
 
 const MIN_W = 480;
 const MIN_H = 320;
 
-export function SheetWindow({ sheet, x: initX, y: initY, w: initW, h: initH, zIndex, onClose, onUpdate, onFocus }: Props) {
+export function SheetWindow({ sheet, x: initX, y: initY, w: initW, h: initH, zIndex, onClose, onUpdate, onFocus, onUseAttack }: Props) {
   // Use refs for drag/resize to avoid re-renders during mouse move
   const windowRef = useRef<HTMLDivElement>(null);
   const pos = useRef({ x: initX, y: initY, w: initW, h: initH });
@@ -148,7 +149,7 @@ export function SheetWindow({ sheet, x: initX, y: initY, w: initW, h: initH, zIn
 
       {/* ── Sheet content (scrollable) ── */}
       <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden' }}>
-        <CharacterSheet sheet={sheet} onUpdate={onUpdate} />
+        <CharacterSheet sheet={sheet} onUpdate={onUpdate} onUseAttack={onUseAttack} />
       </div>
 
       {/* ── Resize handle ── */}

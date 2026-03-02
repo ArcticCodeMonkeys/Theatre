@@ -92,10 +92,14 @@ async function _init(): Promise<Database> {
   try { _db.run(`ALTER TABLE sheets ADD COLUMN save_levels TEXT DEFAULT '{}'`); } catch { /* already exists */ }
   try { _db.run(`ALTER TABLE sheets ADD COLUMN token_image TEXT DEFAULT NULL`); } catch { /* already exists */ }
 
+  // chat title (nameplate)
+  try { _db.run(`ALTER TABLE chat_messages ADD COLUMN title TEXT DEFAULT NULL`); } catch { /* already exists */ }
+
   _db.run(`
     CREATE TABLE IF NOT EXISTS chat_messages (
       id         INTEGER PRIMARY KEY AUTOINCREMENT,
       type       TEXT NOT NULL DEFAULT 'text',
+      title      TEXT,
       content    TEXT NOT NULL DEFAULT '',
       result     TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))

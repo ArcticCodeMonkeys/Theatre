@@ -13,12 +13,14 @@ export interface ContextMenuProps {
   onMoveToBack: (id: string) => void;
   onMoveForward: (id: string) => void;
   onMoveBackward: (id: string) => void;
+  onOpenSheet?: (sheetId: number) => void;
 }
 
 export function ContextMenu({
   image, x, y,
   onClose, onDelete, onMoveLayer, onSetDimensions,
   onMoveToFront, onMoveToBack, onMoveForward, onMoveBackward,
+  onOpenSheet,
 }: ContextMenuProps) {
   const ref = useRef<HTMLDivElement>(null);
   const [w, setW] = useState(String(image.wTiles));
@@ -135,6 +137,16 @@ export function ContextMenu({
           : image.img.original}
       </div>
       <div style={dividerStyle} />
+
+      {/* Open linked sheet */}
+      {image.sheetId !== undefined && onOpenSheet && (
+        <>
+          <button style={btnStyle} onMouseDown={e => { e.preventDefault(); onOpenSheet(image.sheetId!); onClose(); }}>
+            📋 Open Sheet
+          </button>
+          <div style={dividerStyle} />
+        </>
+      )}
 
       {/* Dimensions */}
       <div style={sectionStyle}>Dimensions (tiles)</div>

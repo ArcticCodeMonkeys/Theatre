@@ -17,8 +17,10 @@ router.get('/', async (_req, res) => {
 
 // ── GET /api/sheets/:id ───────────────────────────────────────────────────────
 router.get('/:id', async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'Invalid id' });
   const db = await getDb();
-  const result = db.exec(`SELECT * FROM sheets WHERE id = ${Number(req.params.id)}`);
+  const result = db.exec(`SELECT * FROM sheets WHERE id = ${id}`);
   if (!result.length || !result[0].values.length) return res.status(404).json({ error: 'Not found' });
   const { columns, values } = result[0];
   res.json(Object.fromEntries(columns.map((col, i) => [col, values[0][i]])));
@@ -74,8 +76,9 @@ router.post('/', async (req, res) => {
 
 // ── PATCH /api/sheets/:id ─────────────────────────────────────────────────────
 router.patch('/:id', async (req, res) => {
-  const db = await getDb();
   const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'Invalid id' });
+  const db = await getDb();
   const b = req.body;
 
   const allowed = [
@@ -109,16 +112,20 @@ router.patch('/:id', async (req, res) => {
 
 // ── DELETE /api/sheets/:id ────────────────────────────────────────────────────
 router.delete('/:id', async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'Invalid id' });
   const db = await getDb();
-  db.run(`DELETE FROM sheets WHERE id = ${Number(req.params.id)}`);
+  db.run(`DELETE FROM sheets WHERE id = ${id}`);
   persist();
   res.json({ ok: true });
 });
 
 // ── POST /api/sheets/:id/duplicate ───────────────────────────────────────────
 router.post('/:id/duplicate', async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'Invalid id' });
   const db = await getDb();
-  const src = db.exec(`SELECT * FROM sheets WHERE id = ${Number(req.params.id)}`);
+  const src = db.exec(`SELECT * FROM sheets WHERE id = ${id}`);
   if (!src.length || !src[0].values.length) return res.status(404).json({ error: 'Not found' });
   const { columns, values } = src[0];
   const row = Object.fromEntries(columns.map((col, i) => [col, values[0][i]])) as Record<string, unknown>;
