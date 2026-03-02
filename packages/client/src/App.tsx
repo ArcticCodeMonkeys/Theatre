@@ -5,6 +5,7 @@ import { LayerToolbar } from './ui/LayerToolbar';
 import { ContextMenu } from './ui/ContextMenu';
 import { SheetWindow, SheetWindowState } from './ui/SheetWindow';
 import { TargetingHUD } from './ui/TargetingHUD';
+import { ChatHandle } from './ui/Chat';
 import { ImageRecord } from './types/images';
 import { CharacterSheet, AttackEntry, ActiveCondition } from './types/sheets';
 import { TargetingMode } from './types/targeting';
@@ -33,6 +34,7 @@ let zCounter = 100;
 
 export function App() {
   const stateRef = useRef<CanvasState>(INITIAL_STATE);
+  const chatRef = useRef<ChatHandle>(null);
   const [, setVersion] = useState(0);
   const [draggingImage, setDraggingImage] = useState<ImageRecord | null>(null);
   const [draggingSheet, setDraggingSheet] = useState<CharacterSheet | null>(null);
@@ -162,9 +164,8 @@ export function App() {
     }
 
     setTargetingMode(null);
-    if (targetSheetIds.length === 0) return;
 
-    // Roll damages
+    // Roll damages (always, even if no targets — the action still happened)
     const statVars: DiceVars = {
       MIG: attackerSheet.mig_score, DEX: attackerSheet.dex_score,
       WIL: attackerSheet.wil_score, PRE: attackerSheet.pre_score,
@@ -203,25 +204,25 @@ export function App() {
       handleUpdateSheet(patched);
     }
 
-    // Log to chat
+    // Log to chat via the imperative handle so it appears instantly
     const rollLines = rolls.map(r =>
       r.expression !== r.resolved
         ? `${r.expression} → ${r.resolved} [${r.type}] = ${r.total}`
         : `${r.expression} [${r.type}] = ${r.total}`
     );
     const condLine = conditionsToApply.length > 0 ? `inflicts: ${conditionsToApply.map(c => c.name).join(', ')}` : '';
+    const targetLine = targetSheetIds.length > 0
+      ? `Total: ${totalDmg} dmg → ${targetNames.join(', ')}`
+      : `Total: ${totalDmg} dmg → (no targets in area)`;
     const summaryLines = [
       ...rollLines,
-      `Total: ${totalDmg} dmg → ${targetNames.join(', ')}`,
+      targetLine,
       ...(condLine ? [condLine] : []),
     ];
-    await fetch('http://localhost:3001/api/chat', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        type: 'roll',
-        title: `${attackerSheet.name} — ${attack.name}`,
-        content: summaryLines.join('\n'),
-      }),
+    chatRef.current?.push({
+      type: 'roll',
+      title: `${attackerSheet.name} — ${attack.name}`,
+      content: summaryLines.join('\n'),
     });
   }, [targetingMode, handleUpdateSheet]);
 
@@ -263,6 +264,7 @@ export function App() {
         onSheetDragStart={setDraggingSheet}
         draggingImage={draggingImage}
         savedSheet={savedSheet}
+        chatRef={chatRef}
       />
 
       {/* Floating sheet windows — hidden during targeting so the canvas is clear */}

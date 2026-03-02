@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { ImageRecord } from '../types/images';
 import { CharacterSheet, emptySheet } from '../types/sheets';
-import { Chat } from './Chat';
+import { Chat, ChatHandle } from './Chat';
 import { SheetSettings } from './SheetSettings';
 
 const API = 'http://localhost:3001';
@@ -12,11 +12,12 @@ interface Props {
   onSheetDragStart: (sheet: CharacterSheet | null) => void;
   draggingImage: ImageRecord | null;
   savedSheet?: CharacterSheet;
+  chatRef?: React.Ref<ChatHandle>;
 }
 
 type Tab = 'images' | 'sheets' | 'chat';
 
-export function SidePanel({ onDragStart, onOpenSheet, onSheetDragStart, draggingImage, savedSheet }: Props) {
+export function SidePanel({ onDragStart, onOpenSheet, onSheetDragStart, draggingImage, savedSheet, chatRef }: Props) {
   const [tab, setTab] = useState<Tab>('images');
 
   // ── Images state ──────────────────────────────────────────────────────────
@@ -196,7 +197,7 @@ export function SidePanel({ onDragStart, onOpenSheet, onSheetDragStart, dragging
 
       {/* ── Chat tab — always mounted so history persists ── */}
       <div style={{ display: tab === 'chat' ? 'flex' : 'none', flex: 1, flexDirection: 'column', minHeight: 0 }}>
-        <Chat />
+        <Chat ref={chatRef} />
       </div>
 
       {/* ── Sheet context menu ── */}

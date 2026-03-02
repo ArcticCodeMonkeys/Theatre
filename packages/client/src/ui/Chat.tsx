@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useImperativeHandle, useRef, useState } from 'react';
 import {
   rollExpression, buildExpression,
   RollResult,
@@ -219,9 +219,16 @@ function DicePicker({ onRoll, onClose }: DicePickerProps) {
   );
 }
 
+// ── Imperative handle ──────────────────────────────────────────────────────
+
+export interface ChatHandle {
+  /** Add a message immediately (optimistic) and persist it to the server. */
+  push: (msg: Pick<ChatMessage, 'type' | 'title' | 'content' | 'result'>) => void;
+}
+
 // ── Main Chat component ────────────────────────────────────────────────────
 
-export function Chat() {
+export const Chat = React.forwardRef<ChatHandle>(function Chat(_props, ref) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [loading, setLoading] = useState(true);
   const [input, setInput] = useState('');
@@ -253,6 +260,7 @@ export function Chat() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           type:    optimistic.type,
+          title:   optimistic.title ?? null,
           content: optimistic.content,
           result:  optimistic.result ?? null,
         }),
@@ -263,18 +271,21 @@ export function Chat() {
     } catch { /* keep optimistic on network failure */ }
   };
 
-  const push = (msg: ChatMessage) => {
-    setMessages(prev => [...prev, msg]);
-    persistMsg(msg);
+  const push = (msg: Pick<ChatMessage, 'type' | 'title' | 'content' | 'result'>) => {
+    const optimistic = makeOptimistic(msg.type, msg.content, msg.result, msg.title);
+    setMessages(prev => [...prev, optimistic]);
+    persistMsg(optimistic);
   };
+
+  useImperativeHandle(ref, () => ({ push }));
 
   const handleRollExpr = (expr: string) => {
     const result = rollExpression(expr);
     if (!result) {
-      push(makeOptimistic('text', `⚠ Could not parse: "${expr}"`));
+      push({ type: 'text', content: `⚠ Could not parse: "${expr}"` });
       return;
     }
-    push(makeOptimistic('roll', expr, result));
+    push({ type: 'roll', content: expr, result });
   };
 
   const handleSubmit = () => {
@@ -286,7 +297,7 @@ export function Chat() {
     if (rollMatch) {
       handleRollExpr(rollMatch[1].trim());
     } else {
-      push(makeOptimistic('text', raw));
+      push({ type: 'text', content: raw });
     }
   };
 
@@ -339,7 +350,7 @@ export function Chat() {
       </div>
     </div>
   );
-}
+});
 
 // ── Styles ─────────────────────────────────────────────────────────────────
 
