@@ -4,6 +4,7 @@ import { Server } from 'socket.io';
 import cors from 'cors';
 import imagesRouter from './images.js';
 import sheetsRouter from './sheets.js';
+import chatRouter from './chat.js';
 
 const app = express();
 const httpServer = createServer(app);
@@ -12,6 +13,7 @@ app.use(cors({ origin: 'http://localhost:5173', methods: ['GET','POST','PATCH','
 app.use(express.json());
 app.use('/api/images', imagesRouter);
 app.use('/api/sheets', sheetsRouter);
+app.use('/api/chat',   chatRouter);
 
 const io = new Server(httpServer, {
   cors: { origin: 'http://localhost:5173', methods: ['GET', 'POST'] },

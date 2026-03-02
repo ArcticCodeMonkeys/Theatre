@@ -90,6 +90,16 @@ async function _init(): Promise<Database> {
   try { _db.run(`ALTER TABLE sheets ADD COLUMN skill_levels TEXT DEFAULT '{}'`); } catch { /* already exists */ }
   try { _db.run(`ALTER TABLE sheets ADD COLUMN save_levels TEXT DEFAULT '{}'`); } catch { /* already exists */ }
 
+  _db.run(`
+    CREATE TABLE IF NOT EXISTS chat_messages (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      type       TEXT NOT NULL DEFAULT 'text',
+      content    TEXT NOT NULL DEFAULT '',
+      result     TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `);
+
   persist();
   return _db;
 }

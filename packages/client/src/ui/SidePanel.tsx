@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { ImageRecord } from '../types/images';
 import { CharacterSheet, emptySheet } from '../types/sheets';
+import { Chat } from './Chat';
 
 const API = 'http://localhost:3001';
 
@@ -10,7 +11,7 @@ interface Props {
   savedSheet?: CharacterSheet;
 }
 
-type Tab = 'images' | 'sheets';
+type Tab = 'images' | 'sheets' | 'chat';
 
 export function SidePanel({ onDragStart, onOpenSheet, savedSheet }: Props) {
   const [tab, setTab] = useState<Tab>('images');
@@ -81,13 +82,13 @@ export function SidePanel({ onDragStart, onOpenSheet, savedSheet }: Props) {
     <div style={panelStyle}>
       {/* Tab bar */}
       <div style={tabBarStyle}>
-        {(['images', 'sheets'] as Tab[]).map(t => (
+        {(['images', 'sheets', 'chat'] as Tab[]).map(t => (
           <button
             key={t}
             style={{ ...tabBtnStyle, ...(tab === t ? tabActivStyle : {}) }}
             onClick={() => setTab(t)}
           >
-            {t === 'images' ? '🖼 Images' : '📜 Sheets'}
+            {t === 'images' ? '🖼' : t === 'sheets' ? '📜' : '🎲'}
           </button>
         ))}
       </div>
@@ -168,6 +169,11 @@ export function SidePanel({ onDragStart, onOpenSheet, savedSheet }: Props) {
           </div>
         </>
       )}
+
+      {/* ── Chat tab — always mounted so history persists ── */}
+      <div style={{ display: tab === 'chat' ? 'flex' : 'none', flex: 1, flexDirection: 'column', minHeight: 0 }}>
+        <Chat />
+      </div>
     </div>
   );
 }
