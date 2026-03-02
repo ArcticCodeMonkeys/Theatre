@@ -1,10 +1,10 @@
-import { Router, Request, Response } from 'express';
+import { Router, IRouter, Request, Response } from 'express';
 import multer from 'multer';
 import { join, extname } from 'path';
 import { existsSync } from 'fs';
 import { getDb, persist, UPLOADS_DIR } from './db.js';
 
-const router = Router();
+const router: IRouter = Router();
 
 const storage = multer.diskStorage({
   destination: (_req, _file, cb) => cb(null, UPLOADS_DIR),

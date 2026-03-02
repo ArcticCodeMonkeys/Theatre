@@ -39,6 +39,42 @@ export async function getDb(): Promise<Database> {
     )
   `);
 
+  _db.run(`
+    CREATE TABLE IF NOT EXISTS sheets (
+      id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+      name               TEXT NOT NULL DEFAULT 'New Character',
+      race               TEXT NOT NULL DEFAULT '',
+      background         TEXT NOT NULL DEFAULT '',
+      level              INTEGER NOT NULL DEFAULT 1,
+      mig_score          INTEGER NOT NULL DEFAULT 0,
+      mig_die            INTEGER NOT NULL DEFAULT 6,
+      dex_score          INTEGER NOT NULL DEFAULT 0,
+      dex_die            INTEGER NOT NULL DEFAULT 6,
+      wil_score          INTEGER NOT NULL DEFAULT 0,
+      wil_die            INTEGER NOT NULL DEFAULT 6,
+      pre_score          INTEGER NOT NULL DEFAULT 0,
+      pre_die            INTEGER NOT NULL DEFAULT 6,
+      skill_bonuses      TEXT NOT NULL DEFAULT '{}',
+      hp_current         INTEGER NOT NULL DEFAULT 0,
+      hp_max             INTEGER NOT NULL DEFAULT 0,
+      mental_current     INTEGER NOT NULL DEFAULT 0,
+      mental_max         INTEGER NOT NULL DEFAULT 0,
+      grave_current      INTEGER NOT NULL DEFAULT 0,
+      grave_max          INTEGER NOT NULL DEFAULT 0,
+      ap_current         INTEGER NOT NULL DEFAULT 3,
+      reactions_current  INTEGER NOT NULL DEFAULT 3,
+      mana_current       INTEGER NOT NULL DEFAULT 0,
+      mana_max           INTEGER NOT NULL DEFAULT 0,
+      momentum           INTEGER NOT NULL DEFAULT 0,
+      conditions         TEXT NOT NULL DEFAULT '[]',
+      equipment          TEXT NOT NULL DEFAULT '{}',
+      feats              TEXT NOT NULL DEFAULT '',
+      attacks            TEXT NOT NULL DEFAULT '[]',
+      notes              TEXT NOT NULL DEFAULT '',
+      created_at         TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `);
+
   persist();
   return _db;
 }

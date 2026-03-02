@@ -3,6 +3,7 @@ import { createServer } from 'http';
 import { Server } from 'socket.io';
 import cors from 'cors';
 import imagesRouter from './images.js';
+import sheetsRouter from './sheets.js';
 
 const app = express();
 const httpServer = createServer(app);
@@ -10,6 +11,7 @@ const httpServer = createServer(app);
 app.use(cors({ origin: 'http://localhost:5173' }));
 app.use(express.json());
 app.use('/api/images', imagesRouter);
+app.use('/api/sheets', sheetsRouter);
 
 const io = new Server(httpServer, {
   cors: { origin: 'http://localhost:5173', methods: ['GET', 'POST'] },
