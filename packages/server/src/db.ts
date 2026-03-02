@@ -81,6 +81,7 @@ async function _init(): Promise<Database> {
       feats              TEXT NOT NULL DEFAULT '',
       attacks            TEXT NOT NULL DEFAULT '[]',
       notes              TEXT NOT NULL DEFAULT '',
+      token_image        TEXT DEFAULT NULL,
       created_at         TEXT NOT NULL DEFAULT (datetime('now'))
     )
   `);
@@ -89,6 +90,7 @@ async function _init(): Promise<Database> {
   try { _db.run(`ALTER TABLE sheets ADD COLUMN character_class TEXT DEFAULT ''`); } catch { /* already exists */ }
   try { _db.run(`ALTER TABLE sheets ADD COLUMN skill_levels TEXT DEFAULT '{}'`); } catch { /* already exists */ }
   try { _db.run(`ALTER TABLE sheets ADD COLUMN save_levels TEXT DEFAULT '{}'`); } catch { /* already exists */ }
+  try { _db.run(`ALTER TABLE sheets ADD COLUMN token_image TEXT DEFAULT NULL`); } catch { /* already exists */ }
 
   _db.run(`
     CREATE TABLE IF NOT EXISTS chat_messages (

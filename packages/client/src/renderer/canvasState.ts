@@ -13,6 +13,8 @@ export interface PlacedImage {
   wTiles: number;
   hTiles: number;
   rotation: number; // degrees
+  /** If this token was placed from a character sheet, its sheet ID. */
+  sheetId?: number;
 }
 
 export interface CanvasState {

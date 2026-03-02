@@ -2,18 +2,21 @@ import React, { useEffect, useRef, useState } from 'react';
 import { ImageRecord } from '../types/images';
 import { CharacterSheet, emptySheet } from '../types/sheets';
 import { Chat } from './Chat';
+import { SheetSettings } from './SheetSettings';
 
 const API = 'http://localhost:3001';
 
 interface Props {
   onDragStart: (img: ImageRecord) => void;
   onOpenSheet: (sheet: CharacterSheet) => void;
+  onSheetDragStart: (sheet: CharacterSheet | null) => void;
+  draggingImage: ImageRecord | null;
   savedSheet?: CharacterSheet;
 }
 
 type Tab = 'images' | 'sheets' | 'chat';
 
-export function SidePanel({ onDragStart, onOpenSheet, savedSheet }: Props) {
+export function SidePanel({ onDragStart, onOpenSheet, onSheetDragStart, draggingImage, savedSheet }: Props) {
   const [tab, setTab] = useState<Tab>('images');
 
   // ── Images state ──────────────────────────────────────────────────────────
@@ -44,6 +47,8 @@ export function SidePanel({ onDragStart, onOpenSheet, savedSheet }: Props) {
   // ── Sheets state ──────────────────────────────────────────────────────────
   const [sheets, setSheets] = useState<CharacterSheet[]>([]);
   const [creating, setCreating] = useState(false);
+  const [ctxMenu, setCtxMenu] = useState<{ sheetId: number; x: number; y: number } | null>(null);
+  const [settingsSheet, setSettingsSheet] = useState<CharacterSheet | null>(null);
 
   const fetchSheets = async () => {
     const res = await fetch(`${API}/api/sheets`);
@@ -55,6 +60,7 @@ export function SidePanel({ onDragStart, onOpenSheet, savedSheet }: Props) {
   useEffect(() => {
     if (!savedSheet) return;
     setSheets(prev => prev.map(s => s.id === savedSheet.id ? savedSheet : s));
+    setSettingsSheet(prev => prev?.id === savedSheet.id ? savedSheet : prev);
   }, [savedSheet]);
 
   const handleNewSheet = async () => {
@@ -70,10 +76,28 @@ export function SidePanel({ onDragStart, onOpenSheet, savedSheet }: Props) {
     onOpenSheet(sheet);
   };
 
-  const handleDeleteSheet = async (e: React.MouseEvent, id: number) => {
-    e.stopPropagation();
+  const handleDeleteSheet = async (id: number) => {
+    setCtxMenu(null);
     await fetch(`${API}/api/sheets/${id}`, { method: 'DELETE' });
     setSheets(prev => prev.filter(s => s.id !== id));
+  };
+
+  const handleDuplicateSheet = async (id: number) => {
+    setCtxMenu(null);
+    const res = await fetch(`${API}/api/sheets/${id}/duplicate`, { method: 'POST' });
+    if (!res.ok) return;
+    const copy = await res.json() as CharacterSheet;
+    setSheets(prev => {
+      const idx = prev.findIndex(s => s.id === id);
+      const next = [...prev];
+      next.splice(idx + 1, 0, copy);
+      return next;
+    });
+  };
+
+  const handleSheetUpdatedFromSettings = (updated: CharacterSheet) => {
+    setSheets(prev => prev.map(s => s.id === updated.id ? updated : s));
+    setSettingsSheet(updated);
   };
 
   // ── Render ─────────────────────────────────────────────────────────────────
@@ -136,36 +160,36 @@ export function SidePanel({ onDragStart, onOpenSheet, savedSheet }: Props) {
             {sheets.length === 0 && (
               <p style={emptyStyle}>No sheets yet.<br />Create a character to start.</p>
             )}
-            {sheets.map(sheet => (
-              <div
-                key={sheet.id}
-                style={sheetItemStyle}
-                onClick={() => onOpenSheet(sheet)}
-                title="Click to open sheet"
-              >
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ color: '#cdd6f4', fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {sheet.name}
-                  </div>
-                  <div style={{ color: '#666', fontSize: 11, marginTop: 1 }}>
-                    {[sheet.race, sheet.background].filter(Boolean).join(' · ') || 'No race/background'}
-                    {' — Lv '}{sheet.level}
+            {sheets.map(sheet => {
+              const tokenImg: { url: string } | null = (() => {
+                try { return sheet.token_image ? JSON.parse(sheet.token_image) : null; } catch { return null; }
+              })();
+              return (
+                <div
+                  key={sheet.id}
+                  style={sheetItemStyle}
+                  draggable
+                  onClick={() => onOpenSheet(sheet)}
+                  onDragStart={() => onSheetDragStart(sheet)}
+                  onDragEnd={() => onSheetDragStart(null)}
+                  onContextMenu={e => { e.preventDefault(); setCtxMenu({ sheetId: sheet.id, x: e.clientX, y: e.clientY }); }}
+                  title="Click to open • Drag to canvas • Right-click for options"
+                >
+                  {tokenImg && (
+                    <img src={`${API}${tokenImg.url}`} style={{ width: 28, height: 28, objectFit: 'cover', borderRadius: 4, flexShrink: 0 }} draggable={false} />
+                  )}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ color: '#cdd6f4', fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {sheet.name}
+                    </div>
+                    <div style={{ color: '#666', fontSize: 11, marginTop: 1 }}>
+                      {[sheet.race, sheet.character_class].filter(Boolean).join(' · ') || 'No race/class'}
+                      {' — Lv '}{sheet.level}
+                    </div>
                   </div>
                 </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flexShrink: 0 }}>
-                  <button
-                    style={{ ...iconBtnStyle, color: '#7b8cde' }}
-                    onClick={e => { e.stopPropagation(); onOpenSheet(sheet); }}
-                    title="Open"
-                  >📖</button>
-                  <button
-                    style={{ ...iconBtnStyle, color: '#f38ba8' }}
-                    onClick={e => handleDeleteSheet(e, sheet.id)}
-                    title="Delete"
-                  >🗑</button>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </>
       )}
@@ -174,6 +198,34 @@ export function SidePanel({ onDragStart, onOpenSheet, savedSheet }: Props) {
       <div style={{ display: tab === 'chat' ? 'flex' : 'none', flex: 1, flexDirection: 'column', minHeight: 0 }}>
         <Chat />
       </div>
+
+      {/* ── Sheet context menu ── */}
+      {ctxMenu && (() => {
+        const sheet = sheets.find(s => s.id === ctxMenu.sheetId);
+        if (!sheet) return null;
+        return (
+          <>
+            <div style={{ position: 'fixed', inset: 0, zIndex: 8000 }} onClick={() => setCtxMenu(null)} />
+            <div style={{ ...ctxMenuStyle, left: ctxMenu.x, top: ctxMenu.y }}>
+              <button style={ctxItemStyle} onClick={() => { setCtxMenu(null); onOpenSheet(sheet); }}>📖 Open</button>
+              <button style={ctxItemStyle} onClick={() => handleDuplicateSheet(sheet.id)}>📋 Duplicate</button>
+              <button style={ctxItemStyle} onClick={() => { setCtxMenu(null); setSettingsSheet(sheet); }}>⚙ Settings</button>
+              <div style={{ height: 1, background: '#2a2a4a', margin: '3px 0' }} />
+              <button style={{ ...ctxItemStyle, color: '#f38ba8' }} onClick={() => handleDeleteSheet(sheet.id)}>🗑 Delete</button>
+            </div>
+          </>
+        );
+      })()}
+
+      {/* ── Sheet settings popup ── */}
+      {settingsSheet && (
+        <SheetSettings
+          sheet={settingsSheet}
+          draggingImage={draggingImage}
+          onUpdate={handleSheetUpdatedFromSettings}
+          onClose={() => setSettingsSheet(null)}
+        />
+      )}
     </div>
   );
 }
@@ -297,6 +349,29 @@ const iconBtnStyle: React.CSSProperties = {
   fontSize: 13,
   padding: 0,
   lineHeight: 1,
+};
+
+const ctxMenuStyle: React.CSSProperties = {
+  position: 'fixed',
+  background: '#1a1a2e',
+  border: '1px solid #3a3a6a',
+  borderRadius: 6,
+  padding: '4px 0',
+  zIndex: 8001,
+  minWidth: 140,
+  boxShadow: '0 8px 24px rgba(0,0,0,0.6)',
+};
+
+const ctxItemStyle: React.CSSProperties = {
+  display: 'block',
+  width: '100%',
+  background: 'none',
+  border: 'none',
+  color: '#cdd6f4',
+  cursor: 'pointer',
+  fontSize: 12,
+  padding: '6px 14px',
+  textAlign: 'left',
 };
 
 const emptyStyle: React.CSSProperties = {

@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useCallback, useState } from 'react';
 import { ImageRecord } from '../types/images';
+import { CharacterSheet } from '../types/sheets';
 import {
   CanvasState, PlacedImage,
   getLayer, setLayer, allImages,
@@ -125,10 +126,11 @@ interface Props {
   stateRef: React.MutableRefObject<CanvasState>;
   onStateChange: (next: CanvasState) => void;
   draggingImage: ImageRecord | null;
+  draggingSheet: CharacterSheet | null;
   onContextMenu: (image: PlacedImage, clientX: number, clientY: number) => void;
 }
 
-export function MapCanvas({ stateRef, onStateChange, draggingImage, onContextMenu }: Props) {
+export function MapCanvas({ stateRef, onStateChange, draggingImage, draggingSheet, onContextMenu }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   const drag = useRef<{
@@ -263,31 +265,47 @@ export function MapCanvas({ stateRef, onStateChange, draggingImage, onContextMen
     }
   };
 
-  // ── Drop from image library ───────────────────────────────────────────────
+  // ── Drop from image library or sheet list ────────────────────────────────
   const onDragOver = (e: React.DragEvent) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; };
 
   const onDrop = (e: React.DragEvent) => {
     e.preventDefault();
-    if (!draggingImage) return;
     const rect = canvasRef.current!.getBoundingClientRect();
     const col = Math.floor((e.clientX - rect.left) / CELL);
     const row = Math.floor((e.clientY - rect.top) / CELL);
     const s = stateRef.current;
+
+    // Determine source: sheet token image takes priority over image library drag
+    let imgRecord: ImageRecord | null = null;
+    let sheetId: number | undefined;
+
+    if (draggingSheet) {
+      try { imgRecord = draggingSheet.token_image ? JSON.parse(draggingSheet.token_image) as ImageRecord : null; }
+      catch { imgRecord = null; }
+      sheetId = draggingSheet.id;
+    } else if (draggingImage) {
+      imgRecord = draggingImage;
+    }
+
+    if (!imgRecord) return;
+
+    const finalImg = imgRecord;
     const htmlImg = new Image();
     htmlImg.onload = () => {
       const placed: PlacedImage = {
         id: `${Date.now()}-${Math.random()}`,
         layer: s.activeLayer,
-        img: draggingImage,
+        img: finalImg,
         htmlImg,
         col, row,
         wTiles: 1,
         hTiles: 1,
         rotation: 0,
+        ...(sheetId !== undefined ? { sheetId } : {}),
       };
       onStateChange(setLayer(s, s.activeLayer, [...getLayer(s, s.activeLayer), placed]));
     };
-    htmlImg.src = `${API}${draggingImage.url}`;
+    htmlImg.src = `${API}${finalImg.url}`;
   };
 
   return (

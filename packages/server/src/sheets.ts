@@ -37,7 +37,7 @@ router.post('/', async (req, res) => {
       skill_bonuses, skill_levels, save_levels, hp_current, hp_max,
       mental_current, mental_max, grave_current, grave_max,
       ap_current, reactions_current, mana_current, mana_max,
-      momentum, conditions, equipment, feats, attacks, notes
+      momentum, conditions, equipment, feats, attacks, notes, token_image
     ) VALUES (
       ?, ?, ?, ?, ?,
       ?, ?, ?, ?,
@@ -45,7 +45,7 @@ router.post('/', async (req, res) => {
       ?, ?, ?, ?, ?,
       ?, ?, ?, ?,
       ?, ?, ?, ?,
-      ?, ?, ?, ?, ?, ?
+      ?, ?, ?, ?, ?, ?, ?
     )
   `, [
     b.name ?? 'New Character', b.character_class ?? '', b.race ?? '', b.background ?? '', b.level ?? 1,
@@ -55,7 +55,7 @@ router.post('/', async (req, res) => {
     b.mental_current ?? 0, b.mental_max ?? 0, b.grave_current ?? 0, b.grave_max ?? 0,
     b.ap_current ?? 3, b.reactions_current ?? 3, b.mana_current ?? 0, b.mana_max ?? 0,
     b.momentum ?? 0, b.conditions ?? '[]', b.equipment ?? '{}',
-    b.feats ?? '', b.attacks ?? '[]', b.notes ?? '',
+    b.feats ?? '', b.attacks ?? '[]', b.notes ?? '', b.token_image ?? null,
   ]); } catch (err) {
     console.error('[POST /api/sheets] INSERT failed:', err);
     return res.status(500).json({ error: String(err) });
@@ -85,7 +85,7 @@ router.patch('/:id', async (req, res) => {
     'skill_bonuses','skill_levels','save_levels','hp_current','hp_max',
     'mental_current','mental_max','grave_current','grave_max',
     'ap_current','reactions_current','mana_current','mana_max',
-    'momentum','conditions','equipment','feats','attacks','notes',
+    'momentum','conditions','equipment','feats','attacks','notes','token_image',
   ];
 
   const entries = Object.entries(b).filter(([k]) => allowed.includes(k));
@@ -113,6 +113,28 @@ router.delete('/:id', async (req, res) => {
   db.run(`DELETE FROM sheets WHERE id = ${Number(req.params.id)}`);
   persist();
   res.json({ ok: true });
+});
+
+// ── POST /api/sheets/:id/duplicate ───────────────────────────────────────────
+router.post('/:id/duplicate', async (req, res) => {
+  const db = await getDb();
+  const src = db.exec(`SELECT * FROM sheets WHERE id = ${Number(req.params.id)}`);
+  if (!src.length || !src[0].values.length) return res.status(404).json({ error: 'Not found' });
+  const { columns, values } = src[0];
+  const row = Object.fromEntries(columns.map((col, i) => [col, values[0][i]])) as Record<string, unknown>;
+
+  const cols = columns.filter(c => c !== 'id' && c !== 'created_at');
+  const placeholders = cols.map(() => '?').join(', ');
+  const vals = cols.map(c => c === 'name' ? `${row[c]} (Copy)` : row[c]);
+
+  db.run(`INSERT INTO sheets (${cols.join(', ')}) VALUES (${placeholders})`, vals as (string | number | null)[]);
+  persist();
+
+  const idResult = db.exec('SELECT last_insert_rowid() as id');
+  const newId = idResult[0]?.values[0][0] as number;
+  const newRow = db.exec(`SELECT * FROM sheets WHERE id = ${newId}`);
+  const { columns: nc, values: nv } = newRow[0];
+  res.status(201).json(Object.fromEntries(nc.map((col, i) => [col, nv[0][i]])));
 });
 
 export default router;

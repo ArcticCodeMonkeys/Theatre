@@ -31,6 +31,7 @@ export function App() {
   const stateRef = useRef<CanvasState>(INITIAL_STATE);
   const [, setVersion] = useState(0);
   const [draggingImage, setDraggingImage] = useState<ImageRecord | null>(null);
+  const [draggingSheet, setDraggingSheet] = useState<CharacterSheet | null>(null);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [windows, setWindows] = useState<WindowEntry[]>([]);
   const [savedSheet, setSavedSheet] = useState<CharacterSheet | undefined>();
@@ -121,12 +122,19 @@ export function App() {
             stateRef={stateRef}
             onStateChange={handleStateChange}
             draggingImage={draggingImage}
+            draggingSheet={draggingSheet}
             onContextMenu={handleContextMenu}
           />
         </div>
       </div>
 
-      <SidePanel onDragStart={setDraggingImage} onOpenSheet={handleOpenSheet} savedSheet={savedSheet} />
+      <SidePanel
+        onDragStart={setDraggingImage}
+        onOpenSheet={handleOpenSheet}
+        onSheetDragStart={setDraggingSheet}
+        draggingImage={draggingImage}
+        savedSheet={savedSheet}
+      />
 
       {/* Floating sheet windows */}
       {windows.map(win => (
