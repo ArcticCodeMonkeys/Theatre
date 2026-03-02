@@ -33,6 +33,7 @@ export function App() {
   const [draggingImage, setDraggingImage] = useState<ImageRecord | null>(null);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [windows, setWindows] = useState<WindowEntry[]>([]);
+  const [savedSheet, setSavedSheet] = useState<CharacterSheet | undefined>();
 
   const handleStateChange = useCallback((next: CanvasState) => {
     stateRef.current = next; setVersion(v => v + 1);
@@ -108,6 +109,7 @@ export function App() {
 
   const handleUpdateSheet = useCallback((updated: CharacterSheet) => {
     setWindows(prev => prev.map(w => w.sheet.id === updated.id ? { ...w, sheet: updated } : w));
+    setSavedSheet(updated);
   }, []);
 
   return (
@@ -124,7 +126,7 @@ export function App() {
         </div>
       </div>
 
-      <SidePanel onDragStart={setDraggingImage} onOpenSheet={handleOpenSheet} />
+      <SidePanel onDragStart={setDraggingImage} onOpenSheet={handleOpenSheet} savedSheet={savedSheet} />
 
       {/* Floating sheet windows */}
       {windows.map(win => (

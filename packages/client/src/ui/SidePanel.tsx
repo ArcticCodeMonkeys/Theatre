@@ -7,11 +7,12 @@ const API = 'http://localhost:3001';
 interface Props {
   onDragStart: (img: ImageRecord) => void;
   onOpenSheet: (sheet: CharacterSheet) => void;
+  savedSheet?: CharacterSheet;
 }
 
 type Tab = 'images' | 'sheets';
 
-export function SidePanel({ onDragStart, onOpenSheet }: Props) {
+export function SidePanel({ onDragStart, onOpenSheet, savedSheet }: Props) {
   const [tab, setTab] = useState<Tab>('images');
 
   // ── Images state ──────────────────────────────────────────────────────────
@@ -48,6 +49,12 @@ export function SidePanel({ onDragStart, onOpenSheet }: Props) {
     setSheets(await res.json());
   };
   useEffect(() => { fetchSheets(); }, []);
+
+  // Keep list in sync when a sheet is saved from an open window
+  useEffect(() => {
+    if (!savedSheet) return;
+    setSheets(prev => prev.map(s => s.id === savedSheet.id ? savedSheet : s));
+  }, [savedSheet]);
 
   const handleNewSheet = async () => {
     setCreating(true);
@@ -198,7 +205,7 @@ const tabBtnStyle: React.CSSProperties = {
 
 const tabActivStyle: React.CSSProperties = {
   color: '#cdd6f4',
-  borderBottomColor: '#7b8cde',
+  borderBottom: '2px solid #7b8cde',
   background: '#0f0f22',
 };
 

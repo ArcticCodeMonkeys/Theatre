@@ -19,8 +19,11 @@ export interface SkillBonuses {
 export interface Equipment {
   mainHand: string;
   offHand: string;
+  helmet: string;
+  necklace: string;
   armor: string;
-  shield: string;
+  cape: string;
+  gloves: string;
   boots: string;
   ring1: string;
   ring2: string;
@@ -29,6 +32,7 @@ export interface Equipment {
 export interface CharacterSheet {
   id: number;
   name: string;
+  character_class: string;
   race: string;
   background: string;
   level: number;
@@ -68,12 +72,15 @@ export const DEFAULT_SKILL_BONUSES: SkillBonuses = {
 };
 
 export const DEFAULT_EQUIPMENT: Equipment = {
-  mainHand: '', offHand: '', armor: '', shield: '', boots: '', ring1: '', ring2: '',
+  mainHand: '', offHand: '',
+  helmet: '', necklace: '', armor: '', cape: '',
+  gloves: '', boots: '', ring1: '', ring2: '',
 };
 
 export function emptySheet(): Omit<CharacterSheet, 'id' | 'created_at'> {
   return {
     name: 'New Character',
+    character_class: '',
     race: '', background: '', level: 1,
     mig_score: 0, mig_die: 6,
     dex_score: 0, dex_die: 6,

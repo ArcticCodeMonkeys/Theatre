@@ -13,9 +13,16 @@ const DB_PATH = join(__dirname, '../../theatre.db');
 if (!existsSync(UPLOADS_DIR)) mkdirSync(UPLOADS_DIR, { recursive: true });
 
 let _db: Database | null = null;
+let _initPromise: Promise<Database> | null = null;
 
-export async function getDb(): Promise<Database> {
-  if (_db) return _db;
+export function getDb(): Promise<Database> {
+  if (_db) return Promise.resolve(_db);
+  if (_initPromise) return _initPromise;
+  _initPromise = _init();
+  return _initPromise;
+}
+
+async function _init(): Promise<Database> {
 
   const SQL = await initSqlJs({
     locateFile: (file: string) => join(dirname(require.resolve('sql.js')), file),
@@ -43,6 +50,7 @@ export async function getDb(): Promise<Database> {
     CREATE TABLE IF NOT EXISTS sheets (
       id                 INTEGER PRIMARY KEY AUTOINCREMENT,
       name               TEXT NOT NULL DEFAULT 'New Character',
+      character_class    TEXT NOT NULL DEFAULT '',
       race               TEXT NOT NULL DEFAULT '',
       background         TEXT NOT NULL DEFAULT '',
       level              INTEGER NOT NULL DEFAULT 1,
@@ -74,6 +82,9 @@ export async function getDb(): Promise<Database> {
       created_at         TEXT NOT NULL DEFAULT (datetime('now'))
     )
   `);
+
+  // Migrations — add columns that may not exist in older DBs
+  try { _db.run(`ALTER TABLE sheets ADD COLUMN character_class TEXT DEFAULT ''`); } catch { /* already exists */ }
 
   persist();
   return _db;
