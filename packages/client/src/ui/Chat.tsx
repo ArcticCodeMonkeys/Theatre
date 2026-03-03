@@ -56,7 +56,7 @@ const ROLL_RE = /^\/r(?:oll)?\s+(.+)$/i;
 function MsgBubble({ msg }: { msg: ChatMessage }) {
   if (msg.type === 'text') {
     return (
-      <div style={bubbleStyle}>
+      <div style={{ ...bubbleStyle, flexShrink: 0 }}>
         <span style={{ color: '#aaa', fontSize: 12 }}>{msg.content}</span>
       </div>
     );
@@ -67,7 +67,7 @@ function MsgBubble({ msg }: { msg: ChatMessage }) {
   // ─ Attack summary card (no dice breakdown, but has a title) ─
   if (!result) {
     return (
-      <div style={{ ...bubbleStyle, background: '#13132a', border: '1px solid #3a3a6a', padding: 0, overflow: 'hidden' }}>
+      <div style={{ ...bubbleStyle, flexShrink: 0, background: '#13132a', border: '1px solid #3a3a6a', padding: 0, overflow: 'hidden' }}>
         {msg.title && (
           <div style={{
             background: '#1a1a3a', borderBottom: '1px solid #3a3a6a',
@@ -87,7 +87,7 @@ function MsgBubble({ msg }: { msg: ChatMessage }) {
 
   // ─ Dice roll card (has full breakdown) ─
   return (
-    <div style={{ ...bubbleStyle, background: '#13132a', border: '1px solid #3a3a6a', padding: 0, overflow: 'hidden' }}>
+    <div style={{ ...bubbleStyle, flexShrink: 0, background: '#13132a', border: '1px solid #3a3a6a', padding: 0, overflow: 'hidden' }}>
       {/* Nameplate (optional — present if this roll was triggered by an attack) */}
       {msg.title && (
         <div style={{
@@ -233,24 +233,56 @@ export const Chat = React.forwardRef<ChatHandle>(function Chat(_props, ref) {
   const [loading, setLoading] = useState(true);
   const [input, setInput] = useState('');
   const [pickerOpen, setPickerOpen] = useState(false);
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  // Shared watermark so both the poll and persistMsg agree on what's "seen"
+  const latestIdRef = useRef(0);
 
-  // Load persisted messages on mount
+  const scrollToBottom = () => {
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+  };
+
+  // Initial load
   useEffect(() => {
     fetch(`${API}/api/chat`)
       .then(r => r.json())
       .then((rows: Record<string, unknown>[]) => {
-        setMessages(rows.map(rowToMsg));
+        const msgs = rows.map(rowToMsg);
+        if (msgs.length) latestIdRef.current = Math.max(...msgs.map(m => m.id));
+        setMessages(msgs);
         setLoading(false);
       })
       .catch(() => setLoading(false));
   }, []);
 
-  // Auto-scroll to newest message
+  // Scroll to bottom when new messages arrive (if near bottom)
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+    const el = scrollRef.current;
+    if (!el || loading) return;
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+    if (nearBottom) scrollToBottom();
+  }, [messages, loading]);
+
+  // Poll every 2 s and append genuinely new messages from other clients
+  useEffect(() => {
+    const poll = setInterval(async () => {
+      try {
+        const rows: Record<string, unknown>[] = await fetch(`${API}/api/chat`).then(r => r.json());
+        const msgs = rows.map(rowToMsg);
+        const newMsgs = msgs.filter(m => m.id > latestIdRef.current);
+        if (!newMsgs.length) return;
+        latestIdRef.current = Math.max(...msgs.map(m => m.id));
+        setMessages(prev => {
+          const existingIds = new Set(prev.map(m => m.id));
+          const toAdd = newMsgs.filter(m => !existingIds.has(m.id));
+          return toAdd.length ? [...prev, ...toAdd] : prev;
+        });
+      } catch { /* ignore */ }
+    }, 2000);
+    return () => clearInterval(poll);
+  }, []);
 
   /** POST a message to the API; replaces the optimistic entry with the confirmed DB row. */
   const persistMsg = async (optimistic: ChatMessage) => {
@@ -267,6 +299,8 @@ export const Chat = React.forwardRef<ChatHandle>(function Chat(_props, ref) {
       });
       if (!res.ok) return;
       const saved = rowToMsg(await res.json());
+      // Advance the watermark so the poll won't re-add this message
+      if (saved.id > latestIdRef.current) latestIdRef.current = saved.id;
       setMessages(prev => prev.map(m => m.id === optimistic.id ? saved : m));
     } catch { /* keep optimistic on network failure */ }
   };
@@ -274,6 +308,7 @@ export const Chat = React.forwardRef<ChatHandle>(function Chat(_props, ref) {
   const push = (msg: Pick<ChatMessage, 'type' | 'title' | 'content' | 'result'>) => {
     const optimistic = makeOptimistic(msg.type, msg.content, msg.result, msg.title);
     setMessages(prev => [...prev, optimistic]);
+    scrollToBottom();
     persistMsg(optimistic);
   };
 
@@ -309,13 +344,13 @@ export const Chat = React.forwardRef<ChatHandle>(function Chat(_props, ref) {
   return (
     <div style={chatStyle}>
       {/* Message list */}
-      <div style={msgListStyle}>
+      <div ref={scrollRef} style={msgListStyle}>
         {loading && <p style={{ color: '#444', fontSize: 12, textAlign: 'center', marginTop: 16 }}>Loading…</p>}
         {!loading && messages.length === 0 && (
           <p style={{ color: '#444', fontSize: 12, textAlign: 'center', marginTop: 16 }}>Type /r 2d6+5 or use the 🎲 button.</p>
         )}
+        <div style={{ flexGrow: 1 }} />
         {messages.map(msg => <MsgBubble key={msg.id} msg={msg} />)}
-        <div ref={bottomRef} />
       </div>
 
       {/* Dice picker (appears above input) */}
@@ -364,6 +399,7 @@ const chatStyle: React.CSSProperties = {
 
 const msgListStyle: React.CSSProperties = {
   flex: 1,
+  minHeight: 0,
   overflowY: 'auto',
   padding: '8px 6px',
   display: 'flex',

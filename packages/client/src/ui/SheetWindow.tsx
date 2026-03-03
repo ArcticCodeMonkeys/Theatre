@@ -2,6 +2,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import { CharacterSheet as Sheet, AttackEntry } from '../types/sheets';
 import { CharacterSheet } from './CharacterSheet';
 
+const API = 'http://localhost:3001';
+
 export interface SheetWindowState {
   sheet: Sheet;
   x: number;
@@ -89,6 +91,21 @@ export function SheetWindow({ sheet, x: initX, y: initY, w: initW, h: initH, zIn
 
   // Apply initial position on mount
   useEffect(() => { applyPos(); }, []);
+
+  // Poll for external changes to hp and conditions every 3 s
+  useEffect(() => {
+    const poll = setInterval(async () => {
+      try {
+        const res = await fetch(`${API}/api/sheets/${sheet.id}`);
+        if (!res.ok) return;
+        const fresh: Sheet = await res.json();
+        if (fresh.hp_current !== sheet.hp_current || fresh.conditions !== sheet.conditions) {
+          onUpdate(fresh);
+        }
+      } catch { /* ignore */ }
+    }, 3000);
+    return () => clearInterval(poll);
+  }, [sheet.id, sheet.hp_current, sheet.conditions, onUpdate]);
 
   return (
     <div

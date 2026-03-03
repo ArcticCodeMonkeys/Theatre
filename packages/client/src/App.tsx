@@ -20,6 +20,7 @@ import {
 } from './renderer/canvasState';
 import socket from './lib/socket';
 import { OnlineUser, UserList } from './ui/UserList';
+import { ReactionModal, ReactionPromptData, ReactionOutcome } from './ui/ReactionModal';
 
 const INITIAL_STATE: CanvasState = {
   mapLayer: [], tokenLayer: [], selectedId: null, activeLayer: 'token',
@@ -48,6 +49,40 @@ export function App({ user }: { user: AppUser }) {
   const [targetingMode, setTargetingMode] = useState<TargetingMode | null>(null);
   const [onlineUsers, setOnlineUsers] = useState<OnlineUser[]>([]);
   const mapPushTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [reactionPrompt, setReactionPrompt] = useState<ReactionPromptData | null>(null);
+
+  // Tracks whether the current reaction is local (this user controls the target),
+  // waiting for a remote response, or responding to a remote prompt.
+  type ReactionCtx =
+    | { mode: 'local'; resolve: (o: ReactionOutcome) => void }
+    | { mode: 'remote-attacker'; requestId: string; resolve: (o: ReactionOutcome) => void }
+    | { mode: 'remote-defender'; requestId: string };
+  const reactionCtxRef = useRef<ReactionCtx | null>(null);
+
+  const askReaction = (data: ReactionPromptData): Promise<ReactionOutcome> => {
+    const requestId = Math.random().toString(36).slice(2);
+    const isMyTarget = data.target.owner_user_id === user.id || data.target.owner_user_id === null;
+    return new Promise(resolve => {
+      if (isMyTarget) {
+        reactionCtxRef.current = { mode: 'local', resolve };
+        setReactionPrompt(data);
+      } else {
+        reactionCtxRef.current = { mode: 'remote-attacker', requestId, resolve };
+        socket.emit('reaction:prompt', { ...data, requestId });
+      }
+    });
+  };
+
+  const handleReactionOutcome = (outcome: ReactionOutcome) => {
+    setReactionPrompt(null);
+    const ctx = reactionCtxRef.current;
+    reactionCtxRef.current = null;
+    if (ctx?.mode === 'local') {
+      ctx.resolve(outcome);
+    } else if (ctx?.mode === 'remote-defender') {
+      socket.emit('reaction:response', { requestId: ctx.requestId, outcome });
+    }
+  };
   // Track whether the initial map load has completed so we don't echo the
   // hydrated state back to the server immediately.
   const mapLoadedRef = useRef(false);
@@ -89,9 +124,28 @@ export function App({ user }: { user: AppUser }) {
     // Receive presence list
     socket.on('users:update', (users: OnlineUser[]) => setOnlineUsers(users));
 
+    // Reaction: incoming prompt from an attacker on another client
+    socket.on('reaction:prompt', (data: ReactionPromptData & { requestId: string }) => {
+      if (data.target.owner_user_id === user.id) {
+        reactionCtxRef.current = { mode: 'remote-defender', requestId: data.requestId };
+        setReactionPrompt(data);
+      }
+    });
+
+    // Reaction: response from the defender arriving back on the attacker's client
+    socket.on('reaction:response', ({ requestId, outcome }: { requestId: string; outcome: ReactionOutcome }) => {
+      const ctx = reactionCtxRef.current;
+      if (ctx?.mode === 'remote-attacker' && ctx.requestId === requestId) {
+        reactionCtxRef.current = null;
+        ctx.resolve(outcome);
+      }
+    });
+
     return () => {
       socket.off('map:update');
       socket.off('users:update');
+      socket.off('reaction:prompt');
+      socket.off('reaction:response');
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -210,7 +264,6 @@ export function App({ user }: { user: AppUser }) {
     } else {
       targetSheetIds = mode.selectedSheetIds;
     }
-
     setTargetingMode(null);
 
     // Roll damages (always, even if no targets — the action still happened)
@@ -231,15 +284,54 @@ export function App({ user }: { user: AppUser }) {
       .filter(c => c.trim()).map(c => ({ name: c, severity: 1 }));
 
     const targetNames: string[] = [];
+    const chatLines: string[] = [
+      ...rolls.map(r =>
+        r.expression !== r.resolved
+          ? `${r.expression} → ${r.resolved} [${r.type}] = ${r.total}`
+          : `${r.expression} [${r.type}] = ${r.total}`
+      ),
+    ];
+
     for (const sheetId of targetSheetIds) {
       const res = await fetch(`http://localhost:3001/api/sheets/${sheetId}`);
       if (!res.ok) continue;
       const target: CharacterSheet = await res.json();
       targetNames.push(target.name);
-      const newHp = Math.max(0, target.hp_current - totalDmg);
+
+      // ── Reaction check ───────────────────────────────────────────────────
+      let effectiveDmg = totalDmg;
+      let effectiveConds = conditionsToApply;
+      const attackSaves = Array.isArray(attack.saves) ? attack.saves.filter(s => s.trim()) : [];
+
+      // Show reaction modal to whoever is executing the attack (they resolve reactions for all targets)
+      if (attackSaves.length > 0) {
+        const outcome = await askReaction({
+          attackName: attack.name,
+          attackerName: attackerSheet.name,
+          rolls: rolls.map(r => ({ expression: r.expression, type: r.type, total: r.total })),
+          totalDmg,
+          conditionsToApply,
+          saves: attackSaves,
+          target,
+        });
+
+        if (outcome.savedWith) {
+          effectiveDmg = outcome.remainingDmg;
+          chatLines.push(
+            `${target.name} reacted (${outcome.savedWith} save): rolled ${outcome.roll} → ${
+              effectiveDmg === 0 ? 'blocked!' : `${effectiveDmg} dmg taken`
+            }`
+          );
+          if (effectiveDmg === 0) effectiveConds = [];
+        } else {
+          chatLines.push(`${target.name} chose not to react`);
+        }
+      }
+
+      const newHp = Math.max(0, target.hp_current - effectiveDmg);
       const existing: ActiveCondition[] = (() => { try { return JSON.parse(target.conditions); } catch { return []; } })();
       const merged = [...existing];
-      for (const nc of conditionsToApply) {
+      for (const nc of effectiveConds) {
         const ex = merged.find(c => c.name.toLowerCase() === nc.name.toLowerCase());
         if (ex) ex.severity = Math.min(ex.severity + 1, 5);
         else merged.push(nc);
@@ -252,25 +344,17 @@ export function App({ user }: { user: AppUser }) {
       handleUpdateSheet(patched);
     }
 
-    // Log to chat via the imperative handle so it appears instantly
-    const rollLines = rolls.map(r =>
-      r.expression !== r.resolved
-        ? `${r.expression} → ${r.resolved} [${r.type}] = ${r.total}`
-        : `${r.expression} [${r.type}] = ${r.total}`
-    );
     const condLine = conditionsToApply.length > 0 ? `inflicts: ${conditionsToApply.map(c => c.name).join(', ')}` : '';
     const targetLine = targetSheetIds.length > 0
       ? `Total: ${totalDmg} dmg → ${targetNames.join(', ')}`
       : `Total: ${totalDmg} dmg → (no targets in area)`;
-    const summaryLines = [
-      ...rollLines,
-      targetLine,
-      ...(condLine ? [condLine] : []),
-    ];
+    chatLines.push(targetLine);
+    if (condLine) chatLines.push(condLine);
+
     chatRef.current?.push({
       type: 'roll',
       title: `${attackerSheet.name} — ${attack.name}`,
-      content: summaryLines.join('\n'),
+      content: chatLines.join('\n'),
     });
   }, [targetingMode, handleUpdateSheet]);
 
@@ -348,6 +432,11 @@ export function App({ user }: { user: AppUser }) {
 
       {/* Active users overlay */}
       <UserList users={onlineUsers} self={user} />
+
+      {/* Reaction modal */}
+      {reactionPrompt && (
+        <ReactionModal prompt={reactionPrompt} onResolve={handleReactionOutcome} />
+      )}
 
       {/* Targeting HUD */}
       {targetingMode && (

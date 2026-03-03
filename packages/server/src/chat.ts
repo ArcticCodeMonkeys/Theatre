@@ -1,6 +1,8 @@
 import { Router, IRouter } from 'express';
+import { Server } from 'socket.io';
 import { getDb, persist } from './db.js';
 
+export function createChatRouter(io: Server): IRouter {
 const router: IRouter = Router();
 
 // ── GET /api/chat ─────────────────────────────────────────────────────────
@@ -32,7 +34,9 @@ router.post('/', async (req, res) => {
     const last = db.exec('SELECT * FROM chat_messages WHERE id = last_insert_rowid()');
     if (!last.length || !last[0].values.length) return res.status(500).json({ error: 'Insert failed' });
     const { columns, values } = last[0];
-    res.status(201).json(Object.fromEntries(columns.map((col, i) => [col, values[0][i]])));
+    const saved = Object.fromEntries(columns.map((col, i) => [col, values[0][i]]));
+    io.emit('chat:message', saved);
+    res.status(201).json(saved);
   } catch (err) {
     console.error('[POST /api/chat] failed:', err);
     res.status(500).json({ error: String(err) });
@@ -48,4 +52,7 @@ router.delete('/', async (_req, res) => {
   res.json({ ok: true });
 });
 
-export default router;
+return router;
+}
+
+export default createChatRouter;

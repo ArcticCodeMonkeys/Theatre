@@ -7,12 +7,17 @@ import session from 'express-session';
 import passport from 'passport';
 import imagesRouter from './images.js';
 import sheetsRouter from './sheets.js';
-import chatRouter from './chat.js';
+import { createChatRouter } from './chat.js';
 import authRouter from './auth.js';
 import { getDb, persist } from './db.js';
 
 const app = express();
 const httpServer = createServer(app);
+
+// Create io early so it can be passed to routers
+const io = new Server(httpServer, {
+  cors: { origin: 'http://localhost:5173', methods: ['GET', 'POST'], credentials: true },
+});
 
 app.use(cors({
   origin: 'http://localhost:5173',
@@ -39,7 +44,7 @@ app.use(passport.session());
 app.use('/auth',       authRouter);
 app.use('/api/images', imagesRouter);
 app.use('/api/sheets', sheetsRouter);
-app.use('/api/chat',   chatRouter);
+app.use('/api/chat',   createChatRouter(io));
 
 // ── Map state REST ────────────────────────────────────────────────────────
 app.get('/api/map', async (_req, res) => {
@@ -68,10 +73,7 @@ app.get('/api/users', async (_req, res) => {
 });
 
 // ── Socket.io ─────────────────────────────────────────────────────────────────
-
-const io = new Server(httpServer, {
-  cors: { origin: 'http://localhost:5173', methods: ['GET', 'POST'], credentials: true },
-});
+// (io already created above)
 
 app.get('/health', (_req, res) => res.json({ status: 'ok' }));
 
@@ -108,6 +110,16 @@ io.on('connection', (socket) => {
     } catch (err) {
       console.error('[map:push] failed:', err);
     }
+  });
+
+  // ── Reaction system ─────────────────────────────────────────────────────
+  // Relay reaction prompt to all other clients so the defender can respond.
+  socket.on('reaction:prompt', (data: unknown) => {
+    socket.broadcast.emit('reaction:prompt', data);
+  });
+  // Relay reaction response back to the attacker.
+  socket.on('reaction:response', (data: unknown) => {
+    socket.broadcast.emit('reaction:response', data);
   });
 
   socket.on('disconnect', () => {
