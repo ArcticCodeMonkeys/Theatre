@@ -51,36 +51,47 @@ export function App({ user }: { user: AppUser }) {
   const mapPushTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [reactionPrompt, setReactionPrompt] = useState<ReactionPromptData | null>(null);
 
-  // Tracks whether the current reaction is local (this user controls the target),
-  // waiting for a remote response, or responding to a remote prompt.
-  type ReactionCtx =
-    | { mode: 'local'; resolve: (o: ReactionOutcome) => void }
-    | { mode: 'remote-attacker'; requestId: string; resolve: (o: ReactionOutcome) => void }
-    | { mode: 'remote-defender'; requestId: string };
-  const reactionCtxRef = useRef<ReactionCtx | null>(null);
+  // Queue of prompts waiting to be shown to this user (one at a time on screen).
+  type QueueItem =
+    | { kind: 'local'; data: ReactionPromptData; resolve: (o: ReactionOutcome) => void }
+    | { kind: 'remote-defender'; data: ReactionPromptData; requestId: string };
+  const reactionQueueRef = useRef<QueueItem[]>([]);
+  // Map of requestId -> resolve for remote prompts THIS client sent and is waiting on.
+  const pendingReactionsRef = useRef<Map<string, (o: ReactionOutcome) => void>>(new Map());
+
+  const showNextReaction = () => {
+    const next = reactionQueueRef.current[0];
+    setReactionPrompt(next ? next.data : null);
+  };
+
+  const enqueueReaction = (item: QueueItem) => {
+    const wasEmpty = reactionQueueRef.current.length === 0;
+    reactionQueueRef.current.push(item);
+    if (wasEmpty) setReactionPrompt(item.data);
+  };
 
   const askReaction = (data: ReactionPromptData): Promise<ReactionOutcome> => {
     const requestId = Math.random().toString(36).slice(2);
     const isMyTarget = data.target.owner_user_id === user.id || data.target.owner_user_id === null;
-    return new Promise(resolve => {
-      if (isMyTarget) {
-        reactionCtxRef.current = { mode: 'local', resolve };
-        setReactionPrompt(data);
-      } else {
-        reactionCtxRef.current = { mode: 'remote-attacker', requestId, resolve };
+    if (isMyTarget) {
+      return new Promise(resolve => enqueueReaction({ kind: 'local', data, resolve }));
+    } else {
+      return new Promise(resolve => {
+        pendingReactionsRef.current.set(requestId, resolve);
         socket.emit('reaction:prompt', { ...data, requestId });
-      }
-    });
+      });
+    }
   };
 
   const handleReactionOutcome = (outcome: ReactionOutcome) => {
-    setReactionPrompt(null);
-    const ctx = reactionCtxRef.current;
-    reactionCtxRef.current = null;
-    if (ctx?.mode === 'local') {
-      ctx.resolve(outcome);
-    } else if (ctx?.mode === 'remote-defender') {
-      socket.emit('reaction:response', { requestId: ctx.requestId, outcome });
+    const [current, ...rest] = reactionQueueRef.current;
+    reactionQueueRef.current = rest;
+    showNextReaction();
+    if (!current) return;
+    if (current.kind === 'local') {
+      current.resolve(outcome);
+    } else {
+      socket.emit('reaction:response', { requestId: current.requestId, outcome });
     }
   };
   // Track whether the initial map load has completed so we don't echo the
@@ -127,17 +138,16 @@ export function App({ user }: { user: AppUser }) {
     // Reaction: incoming prompt from an attacker on another client
     socket.on('reaction:prompt', (data: ReactionPromptData & { requestId: string }) => {
       if (data.target.owner_user_id === user.id) {
-        reactionCtxRef.current = { mode: 'remote-defender', requestId: data.requestId };
-        setReactionPrompt(data);
+        enqueueReaction({ kind: 'remote-defender', data, requestId: data.requestId });
       }
     });
 
     // Reaction: response from the defender arriving back on the attacker's client
     socket.on('reaction:response', ({ requestId, outcome }: { requestId: string; outcome: ReactionOutcome }) => {
-      const ctx = reactionCtxRef.current;
-      if (ctx?.mode === 'remote-attacker' && ctx.requestId === requestId) {
-        reactionCtxRef.current = null;
-        ctx.resolve(outcome);
+      const resolve = pendingReactionsRef.current.get(requestId);
+      if (resolve) {
+        pendingReactionsRef.current.delete(requestId);
+        resolve(outcome);
       }
     });
 
@@ -283,48 +293,50 @@ export function App({ user }: { user: AppUser }) {
     const conditionsToApply: ActiveCondition[] = attack.conditions
       .filter(c => c.trim()).map(c => ({ name: c, severity: 1 }));
 
-    const targetNames: string[] = [];
-    const chatLines: string[] = [
-      ...rolls.map(r =>
-        r.expression !== r.resolved
-          ? `${r.expression} → ${r.resolved} [${r.type}] = ${r.total}`
-          : `${r.expression} [${r.type}] = ${r.total}`
-      ),
-    ];
+    const attackSaves = Array.isArray(attack.saves) ? attack.saves.filter(s => s.trim()) : [];
+    const rollSummary = rolls.map(r => ({ expression: r.expression, type: r.type, total: r.total }));
 
-    for (const sheetId of targetSheetIds) {
-      const res = await fetch(`http://localhost:3001/api/sheets/${sheetId}`);
-      if (!res.ok) continue;
-      const target: CharacterSheet = await res.json();
+    // Fetch all targets in parallel, then fire all reaction prompts simultaneously.
+    const fetchedTargets = await Promise.all(
+      targetSheetIds.map(id =>
+        fetch(`http://localhost:3001/api/sheets/${id}`)
+          .then(r => r.ok ? r.json() as Promise<CharacterSheet> : null)
+          .catch(() => null)
+      )
+    );
+    const validTargets = fetchedTargets.filter(Boolean) as CharacterSheet[];
+
+    // Start all reaction prompts at once — each user is prompted in parallel,
+    // users controlling multiple targets see them queued one at a time.
+    const reactionPromises: Promise<ReactionOutcome>[] = validTargets.map(target => {
+      if (attackSaves.length > 0) {
+        return askReaction({
+          attackName: attack.name, attackerName: attackerSheet.name,
+          rolls: rollSummary, totalDmg, conditionsToApply,
+          saves: attackSaves, target,
+        });
+      }
+      return Promise.resolve<ReactionOutcome>({ savedWith: null, roll: 0, remainingDmg: totalDmg });
+    });
+
+    const outcomes = await Promise.all(reactionPromises);
+
+    const targetNames: string[] = [];
+    const extraLines: string[] = [];
+
+    await Promise.all(validTargets.map(async (target, i) => {
+      const outcome = outcomes[i];
+      const effectiveDmg = attackSaves.length > 0 ? outcome.remainingDmg : totalDmg;
+      const effectiveConds = effectiveDmg === 0 ? [] : conditionsToApply;
       targetNames.push(target.name);
 
-      // ── Reaction check ───────────────────────────────────────────────────
-      let effectiveDmg = totalDmg;
-      let effectiveConds = conditionsToApply;
-      const attackSaves = Array.isArray(attack.saves) ? attack.saves.filter(s => s.trim()) : [];
-
-      // Show reaction modal to whoever is executing the attack (they resolve reactions for all targets)
       if (attackSaves.length > 0) {
-        const outcome = await askReaction({
-          attackName: attack.name,
-          attackerName: attackerSheet.name,
-          rolls: rolls.map(r => ({ expression: r.expression, type: r.type, total: r.total })),
-          totalDmg,
-          conditionsToApply,
-          saves: attackSaves,
-          target,
-        });
-
         if (outcome.savedWith) {
-          effectiveDmg = outcome.remainingDmg;
-          chatLines.push(
-            `${target.name} reacted (${outcome.savedWith} save): rolled ${outcome.roll} → ${
-              effectiveDmg === 0 ? 'blocked!' : `${effectiveDmg} dmg taken`
-            }`
-          );
-          if (effectiveDmg === 0) effectiveConds = [];
+          extraLines.push(`${target.name} reacted (${outcome.savedWith}): rolled ${outcome.roll} → ${
+            effectiveDmg === 0 ? 'blocked!' : `${effectiveDmg} dmg taken`
+          }`);
         } else {
-          chatLines.push(`${target.name} chose not to react`);
+          extraLines.push(`${target.name} did not react`);
         }
       }
 
@@ -337,24 +349,32 @@ export function App({ user }: { user: AppUser }) {
         else merged.push(nc);
       }
       const patched: CharacterSheet = { ...target, hp_current: newHp, conditions: JSON.stringify(merged) };
-      await fetch(`http://localhost:3001/api/sheets/${sheetId}`, {
+      await fetch(`http://localhost:3001/api/sheets/${target.id}`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ hp_current: newHp, conditions: JSON.stringify(merged) }),
       });
       handleUpdateSheet(patched);
-    }
+    }));
 
     const condLine = conditionsToApply.length > 0 ? `inflicts: ${conditionsToApply.map(c => c.name).join(', ')}` : '';
-    const targetLine = targetSheetIds.length > 0
+    const targetLine = validTargets.length > 0
       ? `Total: ${totalDmg} dmg → ${targetNames.join(', ')}`
       : `Total: ${totalDmg} dmg → (no targets in area)`;
-    chatLines.push(targetLine);
-    if (condLine) chatLines.push(condLine);
+    const chatContent = [
+      ...rolls.map(r =>
+        r.expression !== r.resolved
+          ? `${r.expression} → ${r.resolved} [${r.type}] = ${r.total}`
+          : `${r.expression} [${r.type}] = ${r.total}`
+      ),
+      targetLine,
+      ...extraLines,
+      ...(condLine ? [condLine] : []),
+    ].join('\n');
 
     chatRef.current?.push({
       type: 'roll',
       title: `${attackerSheet.name} — ${attack.name}`,
-      content: chatLines.join('\n'),
+      content: chatContent,
     });
   }, [targetingMode, handleUpdateSheet]);
 
